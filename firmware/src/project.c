@@ -1096,6 +1096,9 @@ static void persist_boot(void)                    /* before settings_init / pane
                 proj_fetch(i);
     }
     up_boot();                                     /* user presets */
+#if GOLANA
+    gx_boot();                                     /* Golana extended patterns + song settings */
+#endif
 #endif
 }
 

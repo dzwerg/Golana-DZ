@@ -6,6 +6,14 @@
  * Each render: a phrase of single notes, then a held chord (POLY) or a held note (MONO), then silence; the arp
  * programs hold a chord for their arp. Printed: peak and RMS (dBFS), clipping, DC, the tail's silence, and the
  * render's cost against ANALOG's SAW LEAD (the same notes). Exit 1 when a program clips, is silent or never ends. */
+/* golana_sound exercises factory synthesis, not program chaining.
+ * The hostsim unity build includes seq.c but no golana_ui.c, whose
+ * gu_song_begin/next implementations live in the full device firmware.
+ * No-op stubs model disabled Songmode for this sound-only test. */
+#if defined(GOLANA) && GOLANA
+static void gu_song_begin(void) {}
+static int gu_song_next(void) { return 1; }
+#endif
 #define main hostsim_main
 #include "hostsim.c"
 #undef main

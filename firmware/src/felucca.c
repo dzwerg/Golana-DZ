@@ -92,6 +92,9 @@
 #include "storage.c"
 #endif
 #include "upreset.c"             /* user presets (RAM mirror; flash with FELUCCA_FLASH) */
+#if GOLANA
+#include "golana_ext.c"          /* 48 additional steps per program, song settings */
+#endif
 #include "project.c"
 #if FELUCCA_OTA
 #if GOLANA

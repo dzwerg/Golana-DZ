@@ -63,7 +63,8 @@ static uint8_t gu_pi, gu_view;                  /* the palette, HOME's drawing (
 /* ------------------------------------------------------------ the matrix --- */
 /* virtual parameters (not a track parameter of part 1) */
 enum { GV_NONE = 0xFF, GV_RES = 200, GV_BPM, GV_TUNE, GV_CLOCK, GV_STEP, GV_STEPON, GV_MIDI, GV_PAL, GV_VIEW,
-       GV_SSTEP, GV_SNOTE, GV_STYPE, GV_SFLAG, GV_SLEN };   /* (the step sequencer: REC) */
+       GV_SSTEP, GV_SNOTE, GV_STYPE, GV_SFLAG, GV_SLEN,
+       GV_SONG_ON, GV_SONG_FIRST, GV_SONG_LAST, GV_SONG_REPEAT };   /* (the step sequencer: REC) */
 typedef struct { uint8_t id; const char *label; const char *const *names; uint8_t nn; } gu_par_t;   /* nn: names' count */
 #define GN(a) a, (uint8_t)NELEM(a)                    /* (the lists have no 0 at their end: GOL_TP's GPE counts them) */
 typedef struct { uint8_t btn; const char *tab, *tshort; gu_par_t k[4]; } gu_page_t;
@@ -74,6 +75,8 @@ static const char *const N_GCLOCK[] = {"INT", "USB", "TRS"};
 static const char *const N_GMIDI[] = {"ALL", "CH 1"};
 static const char *const N_GSTYPE[] = {"REST", "NOTE", "TIE"};
 static const char *const N_GSFLAG[] = {"OFF", "ACCENT", "SLIDE", "BOTH"};
+static const char *const N_GSONOFF[] = {"OFF", "ON"};
+static const char *const N_GSONGEND[] = {"ONCE", "REPEAT"};
 /* the pages, grouped by the button that opens them (its pages side by side: the tabs). tab: the page's name on its
  * tab when it is open (after the button's name), tshort: on its tab while another page of the button is open */
 static const gu_page_t GU_PAGES[] = {
@@ -109,6 +112,9 @@ static const gu_page_t GU_PAGES[] = {
      {{P_AGATE, "GATE", 0}, {P_ASWING, "SWING", 0}, {P_AHOLD, "LATCH", GN(N_GONOFF)}, {GL_ARPKSYNC, "KEY SYNC", 0}}},
     {B_SEQ, "STEPS", "STEPS",
      {{GL_ARPLAST, "LAST STEP", 0}, {GV_STEP, "STEP", 0}, {GV_STEPON, "ON / OFF", GN(N_GONOFF)}, {GV_NONE, 0, 0}}},
+    {B_SEQ, "SONGMODE", "SONG",
+     {{GV_SONG_ON, "SONGMODE", GN(N_GSONOFF)}, {GV_SONG_FIRST, "FIRST PROG", 0},
+      {GV_SONG_LAST, "LAST PROG", 0}, {GV_SONG_REPEAT, "PLAY MODE", GN(N_GSONGEND)}}},
     {B_REC, "PATTERN", "PATTERN",
      {{GV_SSTEP, "STEP", 0}, {GV_SNOTE, "NOTE", 0}, {GV_STYPE, "TYPE", GN(N_GSTYPE)}, {GV_SFLAG, "ACC / SLIDE", GN(N_GSFLAG)}}},
     {B_REC, "SETUP", "SETUP",
@@ -132,7 +138,7 @@ static struct {
     uint8_t page, prog, dirty, ready;
     uint8_t save, save_slot, cur;                /* WRITE: open, its slot, the letter KNOB 2 changes */
     uint8_t step;                                /* ARP 3: the step KNOB 2 points at (0..7) */
-    uint8_t sstep;                               /* REC STEPS: the sequencer step being edited (0..15) */
+    uint8_t sstep;                               /* REC PATTERN step 0..63 */
     char name[13], sname[13];
     char toast[24];
     uint32_t toast_t, hot_t;
@@ -155,31 +161,76 @@ static void gu_prog_values(uint32_t k, int16_t *v, char *name)
 }
 static int gu_user(uint32_t k) { return up_used(k) && up_rec(k)->engine == ENGI_GOLANA; }
 
-static void gu_load(uint32_t k)
+/* Called inside audio ISR at song boundaries, or with IRQs disabled for manual loads.
+ * The existing 192-byte sound record continues to own its first 16 steps.
+ * gx_apply() provides steps 17..64 only when its program signature matches. */
+static void gu_load_core(uint32_t k, uint32_t manual)
 {
     int16_t v[P_COUNT];
     char nm[16];
+    track_t *t = gu_t();
+    uint32_t i, changed = 0;
     k %= GL_NPROG;
     gu_prog_values(k, v, nm);
-    panic_req |= 1u;                              /* what part 1 sounds ends (the voice mode may change) */
-    fm1_irq_off();
-    gl_apply(gu_t(), v);
-    if (gu_user(k)) {                                 /* its sequencer pattern (16 steps), its LENGTH */
-        load_pat16(gu_t(), up_rec(k)->note, up_rec(k)->flags);
+    if (!manual) {
+        /* Only sound-parameter differences silence voices, not the pattern/length. */
+        for (i = 0; i < P_COUNT; i++) {
+            if (i == P_SLEN || i == P_SDIV || i == P_SSWING || i == P_SGATE || i == P_SQNT)
+                continue;
+            if (t->p[i] != v[i]) { changed = 1u; break; }
+        }
+        if (changed) {
+            seq_release(t);
+            trk_all_off(t);
+            gm_all_off();
+        }
+    } else
+        panic_req |= 1u;
+    gl_apply(t, v);
+    if (gu_user(k)) {
+        load_pat16(t, up_rec(k)->note, up_rec(k)->flags);
+        gx_apply(k, t);
     } else {
         static const uint8_t NONE[16];
         const uint8_t *nt = NONE, *fl = NONE;
-        if (k == 1u) {                                /* ACID LINE: Felucca's ACID pattern */
+        if (k == 1u) {
             nt = PATTERNS[0].note;
             fl = PATTERNS[0].flags;
         }
-        load_pat16(gu_t(), nt, fl);
+        load_pat16(t, nt, fl);
     }
-    gu_t()->p[P_SLEN] = (int16_t)clamp(v[P_SLEN], 1, 16);
-    fm1_irq_on();
+    t->p[P_SLEN] = (int16_t)clamp(v[P_SLEN], 1, NSTEP);
     gu.prog = (uint8_t)k;
     str_cpy(gu.name, nm, 13);
     gu.dirty = 0;
+}
+static void gu_load(uint32_t k)
+{
+    fm1_irq_off();
+    gu_load_core(k, 1);
+    fm1_irq_on();
+}
+
+/* A contiguous range of program slots is the song. The transport owns its
+ * clock; only one program/pattern is active at a time. */
+static void gu_song_begin(void)
+{
+    if (gx.enabled)
+        gu_load_core(gx.first, 0);
+}
+static int gu_song_next(void)
+{
+    uint32_t next;
+    if (!gx.enabled)
+        return 1;
+    if (gu.prog >= gx.last) {
+        if (!gx.repeat)
+            return 0;                          /* ONCE: stop after LAST */
+        next = gx.first;
+    } else
+        next = gu.prog + 1u;
+    gu_load_core(next, 0);
+    return 1;
 }
 
 /* WRITE: part 1's sound -> slot k, named name; 0 ok */
@@ -197,8 +248,12 @@ static int gu_store(uint32_t k, const char *name)
     for (i = 0; i < P_COUNT; i++)
         up_set_value(&r, i, (int16_t)clamp(gu_t()->p[i], -64, 191));
     up_pat_from(&r, gu_t()->step);                    /* the sequencer's 16 steps with the sound */
+    if (gx_blocked)                         /* never overwrite an old Felucca project */
+        return 2;
     rc = up_put(k, &r);
-    return rc == 0 || rc == 3 ? 0 : rc;
+    if (rc != 0 && rc != 3)
+        return rc;
+    return gx_store(k, &r, gu_t()->step);
 }
 
 /* the palette and HOME's drawing, with the settings (flash): in two of Felucca's settings this interface does not
@@ -218,9 +273,9 @@ static void gu_prefs_save(void)
 /* ------------------------------------------------------------- parameters --- */
 static const param_desc_t *gu_desc(uint32_t id) { return param_desc_of(ENGI_GOLANA, id); }
 
-/* the step sequencer (seq.c plays part 1's steps): 16 steps, saved with the program (upreset.c's pattern) */
-static uint32_t gu_slen(void) { return (uint32_t)clamp(gu_t()->p[P_SLEN], 1, 16); }
-static step_t *gu_sst(void) { return &gu_t()->step[gu.sstep % 16u]; }
+/* The first 16 steps stay inside the legacy preset, the other 48 in gx. */
+static uint32_t gu_slen(void) { return (uint32_t)clamp(gu_t()->p[P_SLEN], 1, NSTEP); }
+static step_t *gu_sst(void) { return &gu_t()->step[gu.sstep % NSTEP]; }
 static int32_t gu_stype(const step_t *st) { return st->time == ST_TIE ? 2 : st->time == ST_NOTE && st->n ? 1 : 0; }
 static void gu_snote_set(step_t *st, uint32_t note)   /* the step a NOTE of note (velocity 96, as a pattern's) */
 {
@@ -245,7 +300,11 @@ static void gu_range(const gu_par_t *q, int32_t *lo, int32_t *hi)
     case GV_SNOTE: *lo = 0; *hi = 127; return;
     case GV_STYPE: *lo = 0; *hi = 2; return;
     case GV_SFLAG: *lo = 0; *hi = 3; return;
-    case GV_SLEN: *lo = 1; *hi = 16; return;
+    case GV_SLEN: *lo = 1; *hi = NSTEP; return;
+    case GV_SONG_ON: *lo = 0; *hi = 1; return;
+    case GV_SONG_FIRST: *lo = 1; *hi = 32; return;
+    case GV_SONG_LAST: *lo = (int32_t)gx.first + 1; *hi = 32; return;
+    case GV_SONG_REPEAT: *lo = 0; *hi = 1; return;
     default:
         if (q->names) {
             *lo = 0;
@@ -287,17 +346,26 @@ static int32_t gu_get(const gu_par_t *q)
     case GV_STYPE: return gu_stype(gu_sst());
     case GV_SFLAG: return gu_sst()->flags & 3;
     case GV_SLEN: return (int32_t)gu_slen();
+    case GV_SONG_ON: return gx.enabled;
+    case GV_SONG_FIRST: return (int32_t)gx.first + 1;
+    case GV_SONG_LAST: return (int32_t)gx.last + 1;
+    case GV_SONG_REPEAT: return gx.repeat;
     case GV_NONE: return 0;
     default: return p[q->id];
     }
 }
 
+static void gu_say(const char *a, const char *b); /* declared below: flash-block toast */
 static void gu_set(const gu_par_t *q, int32_t v)
 {
     track_t *t = gu_t();
     int32_t lo, hi;
     gu_range(q, &lo, &hi);
     v = clamp(v, lo, hi);
+    if (gx_blocked && q->id >= GV_SONG_ON && q->id <= GV_SONG_REPEAT) {
+        gu_say("PROJECTS FULL", 0);           /* all 4 legacy Felucca project pairs in use */
+        return;
+    }
     switch (q->id) {
     case GV_RES: t->p[P_ARATE] = GU_RES_DIV[v]; break;
     case GV_BPM: song.g[G_BPM] = (int16_t)v; return;
@@ -336,6 +404,13 @@ static void gu_set(const gu_par_t *q, int32_t v)
         return;
     }
     case GV_SLEN: t->p[P_SLEN] = (int16_t)v; gu.sstep = (uint8_t)(gu.sstep % (uint32_t)v); gu.dirty = 1; return;
+    case GV_SONG_ON: gx.enabled = (uint8_t)v; gx_mark_dirty(); return;
+    case GV_SONG_FIRST:
+        gx.first = (uint8_t)(v - 1);
+        if (gx.last < gx.first) gx.last = gx.first;
+        gx_mark_dirty(); return;
+    case GV_SONG_LAST: gx.last = (uint8_t)(v - 1); gx_mark_dirty(); return;
+    case GV_SONG_REPEAT: gx.repeat = (uint8_t)v; gx_mark_dirty(); return;
     case GV_STEPON: {
         uint32_t m = (gu_steps() & ~(1u << gu.step)) | (uint32_t)(v != 0) << gu.step;
         t->p[GL_ARPST_A] = (int16_t)(m & 15u);
@@ -567,9 +642,9 @@ static void gu_draw_card(uint32_t k)
     h = gu_hashv(h, (int32_t)(gu.page | k << 8));
     if (q->id == GV_STEP || q->id == GV_STEPON || q->id == GL_ARPLAST)
         h = gu_hashv(h, (int32_t)(gu_steps() | (uint32_t)gu_t()->p[GL_ARPLAST] << 8 | (uint32_t)gu.step << 12));
-    if (q->id == GV_SSTEP || q->id == GV_SLEN) {        /* the 16 steps, the one edited, the one playing */
-        uint32_t i;
-        for (i = 0; i < 16u; i++)
+    if (q->id == GV_SSTEP || q->id == GV_SLEN) {        /* one of four 16-step pages */
+        uint32_t i, base = ((uint32_t)gu.sstep / 16u) * 16u;
+        for (i = base; i < base + 16u; i++)
             h = gu_hashv(h, gu_stype(&gu_t()->step[i]) | (gu_t()->step[i].flags & 3) << 2);
         h = gu_hashv(h, (int32_t)(gu.sstep | gu_slen() << 8 | (song.playing ? gu_t()->seq_idx % gu_slen() : 31u) << 16));
     }
@@ -600,16 +675,18 @@ static void gu_draw_card(uint32_t k)
         }
         cv_text_on((GU_CW - w) / 2, (big ? 22 : f == &AF_M ? 32 : 36) + dy / 2, f, b, GC_TEXT, surf);
     }
-    if (q->id == GV_SSTEP || q->id == GV_SLEN) {        /* the sequencer's 16 steps */
-        uint32_t st, len = gu_slen(), play = song.playing ? gu_t()->seq_idx % len : 99u;
+    if (q->id == GV_SSTEP || q->id == GV_SLEN) {        /* page indicated by edited step */
+        uint32_t st, base = ((uint32_t)gu.sstep / 16u) * 16u;
+        uint32_t len = gu_slen(), play = song.playing ? gu_t()->seq_idx % len : 99u;
         for (st = 0; st < 16u; st++) {
+            uint32_t idx = base + st;
             int32_t sx = 7 + (int32_t)st * 6 + (int32_t)(st / 4u) * 2;
-            int32_t ty = gu_stype(&gu_t()->step[st]);
-            uint16_t c = st >= len ? GC_BG : ty == 1 ? acc : ty == 2 ? ux_mix(acc, surf, 55) : GC_LINE;
+            int32_t ty = gu_stype(&gu_t()->step[idx]);
+            uint16_t c = idx >= len ? GC_BG : ty == 1 ? acc : ty == 2 ? ux_mix(acc, surf, 55) : GC_LINE;
             cv_rect(sx, 64, 5, 9, c);
-            if (st == play)
+            if (idx == play)
                 cv_rect(sx, 60, 5, 2, GC_TEXT);
-            if (st == gu.sstep && q->id == GV_SSTEP)
+            if (idx == gu.sstep && q->id == GV_SSTEP)
                 cv_rect(sx, 76, 5, 2, GC_TEXT);
         }
     } else if (q->id == GV_STEP || q->id == GV_STEPON || q->id == GL_ARPLAST) {   /* the 8 steps: on, off, past LAST */
@@ -889,6 +966,7 @@ static void gu_input(void)
     notes = fm1_input_note_edges();                  /* (the keys sound from the audio ISR: seq.c) */
     if (!gu.ready)
         return;
+    gx_poll();
     for (k = 0; k < NTRK; k++)                       /* MIDI Program Change: a program */
         if (ui.mpc[k]) {
             uint32_t v;

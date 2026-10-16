@@ -49,6 +49,45 @@ static volatile uint8_t kb_asleep;       /* MENU > SCREEN OFF (ui.c): the screen
 static uint8_t last_note = 60;
 static volatile uint8_t transport_req;   /* 1 start, 2 stop, 3 restart (from the UI) */
 static volatile uint8_t panic_req;       /* bit per track: release every sounding note (preset / engine change) */
+#if GOLANA
+/* USB-MIDI OUT for sequencer and arpeggiator; physical-key MIDI is already sent elsewhere.
+ * Two source masks avoid one source ending a note held by the other. */
+static uint32_t gm_seq[4], gm_arp[4];
+static uint32_t gm_key_mask[27];
+static void gm_note(uint32_t arp, uint32_t note, uint32_t vel)
+{
+    uint32_t word = (note & 127u) >> 5, bit = 1u << (note & 31u);
+    uint32_t *own = arp ? gm_arp : gm_seq;
+    uint32_t *other = arp ? gm_seq : gm_arp;
+    if (vel) {
+        if (own[word] & bit) {
+            /* Retigger: some receivers ignore NOTE ON if a pitch is already held. */
+            midi_out_event(0x08u | 0x80u << 8 | (note & 127u) << 16);
+            midi_out_event(0x09u | 0x90u << 8 | (note & 127u) << 16 | (vel & 127u) << 24);
+        } else if (!(other[word] & bit))
+            midi_out_event(0x09u | 0x90u << 8 | (note & 127u) << 16 | (vel & 127u) << 24);
+        own[word] |= bit;
+    } else if (own[word] & bit) {
+        own[word] &= ~bit;
+        if (!(other[word] & bit))
+            midi_out_event(0x08u | 0x80u << 8 | (note & 127u) << 16);
+    }
+}
+static void gm_all_off(void)
+{
+    uint32_t i, w;
+    for (w = 0; w < 4u; w++) {
+        uint32_t mask = gm_seq[w] | gm_arp[w];
+        for (i = 0; i < 32u; i++)
+            if ((mask >> i) & 1u)
+                midi_out_event(0x08u | 0x80u << 8 | (w * 32u + i) << 16);
+        gm_seq[w] = gm_arp[w] = 0;
+    }
+}
+/* Song transitions are called from seq_tick after the outgoing program's last step. */
+static void gu_song_begin(void);
+static int gu_song_next(void);
+#endif
 static volatile uint8_t midi_hint;       /* MIDI IN played track n - 1, which is not the selected one (the UI says so) */
 
 static uint32_t trk_index(const track_t *t) { return (uint32_t)(t - trk); }
@@ -247,6 +286,9 @@ static __attribute__((noinline)) void arp_chord_off(track_t *t, int rec)   /* th
             if (rec)
                 rec_release(t, t->arp_ch[i]);
             trk_note_off(t, t->arp_ch[i]);
+#if GOLANA
+            if (t == &trk[0]) gm_note(1u, t->arp_ch[i], 0u);
+#endif
             t->arp_ch[i] = 0;
         }
 }
@@ -267,6 +309,9 @@ static __attribute__((noinline)) void arp_chord(track_t *t, const uint32_t *list
         if (rec_on(t))
             rec_note(t, nt, 100);
         trk_note_on(t, nt, 100);
+#if GOLANA
+        if (t == &trk[0]) gm_note(1u, nt, 100u);
+#endif
     }
 }
 
@@ -275,6 +320,9 @@ static void arp_silence(track_t *t)              /* the sounding arp note(s) end
     if (t->arp_ch[0] | t->arp_ch[1] | t->arp_ch[2])
         arp_chord_off(t, 0);
     trk_note_off(t, t->arp_note);
+#if GOLANA
+    if (t == &trk[0]) gm_note(1u, t->arp_note, 0u);
+#endif
     t->arp_note = 0;
 }
 
@@ -283,6 +331,9 @@ static void arp_off(track_t *t)                  /* the sounding arp note(s) end
     if (t->arp_ch[0] | t->arp_ch[1] | t->arp_ch[2])
         arp_chord_off(t, rec_on(t));
     trk_note_off(t, t->arp_note);
+#if GOLANA
+    if (t == &trk[0]) gm_note(1u, t->arp_note, 0u);
+#endif
     if (rec_on(t))
         rec_release(t, t->arp_note);
     t->arp_note = 0;
@@ -437,6 +488,9 @@ static __attribute__((noinline)) void arp_fire(track_t *t, uint32_t period)
         if (rec_on(t))
             rec_note(t, t->arp_note, 100);           /* recording: what the arp plays */
         trk_note_on(t, t->arp_note, 100);
+#if GOLANA
+        if (t == &trk[0]) gm_note(1u, t->arp_note, 100u);
+#endif
     }
 }
 
@@ -727,13 +781,23 @@ static void key_on(uint32_t k, track_t *t)
 {
     uint32_t n = chord_build(t, kb_note[k], kb_chord[k]), i, mc = trk_midi_ch(trk_index(t));
     kb_chn[k] = 0;
+#if GOLANA
+    gm_key_mask[k] = 0;
+#endif
     in_key = (uint8_t)(k + 1u);                     /* (the arp keeps the key: arp_add) */
     for (i = 0; i < n; i++) {
         uint32_t x = kb_chord[k][i];
         if (midi_local_held(t, x))
             continue;
         input_on(t, x, 100);
+#if GOLANA
+        if (t != &trk[0] || !t->p[P_AMODE]) {
+            gm_key_mask[k] |= 1u << i;
+            midi_out_event(0x09u | (0x90u | mc) << 8 | x << 16 | 100u << 24);
+        }
+#else
         midi_out_event(0x09u | (0x90u | mc) << 8 | x << 16 | 100u << 24);
+#endif
     }
     in_key = 0;
     kb_chn[k] = (uint8_t)n;
@@ -750,7 +814,12 @@ static void key_off(uint32_t k, track_t *t)
         if (midi_local_held(t, x))
             continue;
         input_off(t, x);
+#if GOLANA
+        if ((gm_key_mask[k] >> i) & 1u)
+            midi_out_event(0x08u | (0x80u | mc) << 8 | x << 16);
+#else
         midi_out_event(0x08u | (0x80u | mc) << 8 | x << 16);
+#endif
     }
 }
 
@@ -837,6 +906,9 @@ static void keyboard_block(void)
 static void seq_start(void)
 {
     uint32_t i;
+#if GOLANA
+    gu_song_begin();                                /* SONGMODE starts at FIRST */
+#endif
     motion_begin();
     chain_start();
     for (i = 0; i < NTRK; i++) {                   /* every track from its step 0, together */
@@ -862,8 +934,12 @@ static void seq_start(void)
 static void seq_release(track_t *t)
 {
     uint32_t i;
-    for (i = 0; i < t->seq_n; i++)
+    for (i = 0; i < t->seq_n; i++) {
         trk_note_off(t, t->seq_notes[i]);
+#if GOLANA
+        if (t == &trk[0]) gm_note(0u, t->seq_notes[i], 0u);
+#endif
+    }
     t->seq_n = 0;
     t->seq_hold = 0;
     t->slide_glide = 0;                             /* live MONO / LEG keys must not glide after it */
@@ -888,6 +964,9 @@ static void seq_stop(void)
         trk[i].nd_fired = 0;
     }
     chain_stop();
+#if GOLANA
+    gm_all_off();
+#endif
     motion_end();
 }
 
@@ -965,14 +1044,22 @@ static __attribute__((noinline)) void seq_step(track_t *t, const step_t *s, uint
     if (!slide_in)
         seq_release(t);
     for (i = 0; i < m; i++)
-        if (!((sk >> i) & 1u))
+        if (!((sk >> i) & 1u)) {
             trk_note_on(t, nn[i], vv[i]);
+#if GOLANA
+            if (t == &trk[0]) gm_note(0u, nn[i], vv[i]);
+#endif
+        }
     if (slide_in)                                   /* release what is not held over */
         for (i = 0; i < t->seq_n; i++) {
             for (j = 0; j < m && nn[j] != t->seq_notes[i]; j++)
                 ;
-            if (j == m)
+            if (j == m) {
                 trk_note_off(t, t->seq_notes[i]);
+#if GOLANA
+                if (t == &trk[0]) gm_note(0u, t->seq_notes[i], 0u);
+#endif
+            }
         }
     t->seq_n = 0;
     for (i = 0; i < m; i++)
@@ -1127,7 +1214,21 @@ static void seq_tick(track_t *t, uint32_t n)
             seq_nd_due(t, period, len, cur_len, n);
         if (t->seq_pos < cur_len && t->seq_pos != 0x7FFFFFFFu + n)
             break;
+#if GOLANA
+        uint32_t initial = t->seq_pos >= 0x7FFFFFFFu;
+#endif
         t->seq_pos = t->seq_pos >= 0x7FFFFFFFu ? (chain.running ? chain.carry : 0u) : t->seq_pos - cur_len;
+#if GOLANA
+        if (!initial && t == &trk[0] && t->seq_idx + 1u == len) {
+            if (!gu_song_next()) {                  /* ONCE finished LAST */
+                seq_stop();
+                return;
+            }
+            period = div_samples((uint32_t)t->p[P_SDIV]);
+            len = t->p[P_SLEN] > 0 ? (uint32_t)t->p[P_SLEN] : 1u;
+            t->seq_idx = (uint16_t)(len - 1u);      /* next step = step 0 */
+        }
+#endif
         t->seq_idx = (uint16_t)((t->seq_idx + 1u) % len);
         rec_hold(t, t->seq_idx, len);
         if (t->p[P_SQNT] && !t->nd_fired)
@@ -1284,6 +1385,9 @@ static void events_block(uint32_t n)
         track_t *t = &trk[i];
         if ((pr >> i) & 1u) {
             midi_forget_track(i);
+#if GOLANA
+            if (i == 0u) gm_all_off();
+#endif
             trk_all_off(t);
             t->nheld = 0;
             t->arp_phys = 0;

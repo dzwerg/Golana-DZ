@@ -196,11 +196,17 @@ int main(int argc, char **argv)
             web_keys(0);
             render(80);
         }
+        /* Place a note in step 49 to verify the new extension storage. */
+        gu_snote_set(&trk[0].step[48], 72u);
+        gu.dirty = 1;
         check(gu.sstep == 3 && trk[0].step[0].time == ST_NOTE && trk[0].step[2].time == ST_NOTE &&
               trk[0].step[1].note[0] == trk[0].step[0].note[0] + 4, "keys write steps 1..3 and move on");
         turn(EN_K1, 0);
         turn(EN_SELECT, 1);
-        turn(EN_K1, -12);                         /* LENGTH 16 -> 4 */
+        /* 64-step LENGTH now triggers gu_accel for multi-detent turns. */
+        /* Turn twelve single detents to set LENGTH 16 -> 4 exactly. */
+        for (i = 0; i < 12u; i++)
+            turn(EN_K1, -1);
         len = trk[0].p[P_SLEN];
         check(len == 4, "SETUP LENGTH 4");
         turn(EN_SELECT, -1);
@@ -225,8 +231,16 @@ int main(int argc, char **argv)
         check(gu.prog == 30 && up_rec(30)->note[0] == trk[0].step[0].note[0], "the pattern written with the program");
         turn(EN_PRESET, -1);
         check(trk[0].step[0].time == ST_REST, "another program: its own (empty) pattern");
+        /* Simulate a restart of the extension, reloading from flash. */
+        gx_reset();
+        gx_boot();
+        /* Ensure the step-49 test cannot pass from stale in-memory step data. */
+        trk[0].step[48].time = ST_REST;
+        trk[0].step[48].n = 0;
         turn(EN_PRESET, 1);
         check(trk[0].step[1].time == ST_NOTE && trk[0].p[P_SLEN] == 4, "loaded back: the steps and LENGTH");
+        check(trk[0].step[48].time == ST_NOTE && trk[0].step[48].n == 1 &&
+              trk[0].step[48].note[0] == 72, "loaded back: step 49 extension");
     }
     /* 1.0: WRITE while the sequencer plays: STOP TO SAVE, the WRITE screen stays and nothing is written; PLAY there
      * stops it, then SAVE writes */

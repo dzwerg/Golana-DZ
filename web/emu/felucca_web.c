@@ -204,6 +204,9 @@ static void fl_plain_window_init(void) {}
 #define FL_FAR(fn) (fn)
 #include "../../firmware/src/storage.c"
 #include "../../firmware/src/upreset.c"
+#if GOLANA
+#include "../../firmware/src/golana_ext.c"
+#endif
 #include "../../firmware/src/project.c"
 
 /* ------------------------------------------------- main.c and its HAL --- */
