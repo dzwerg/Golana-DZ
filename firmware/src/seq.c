@@ -87,6 +87,7 @@ static void gm_all_off(void)
 /* Song transitions are called from seq_tick after the outgoing program's last step. */
 static void gu_song_begin(void);
 static int gu_song_next(void);
+static void gu_dz_playback_end(void); /* DZ Stage 4: restore original synth steps on STOP */
 #endif
 static volatile uint8_t midi_hint;       /* MIDI IN played track n - 1, which is not the selected one (the UI says so) */
 
@@ -907,7 +908,7 @@ static void seq_start(void)
 {
     uint32_t i;
 #if GOLANA
-    gu_song_begin();                                /* SONGMODE starts at FIRST */
+    gu_song_begin();                                /* DZ SONG/PATTERN: load from RAM bank */
 #endif
     motion_begin();
     chain_start();
@@ -965,6 +966,7 @@ static void seq_stop(void)
     }
     chain_stop();
 #if GOLANA
+    gu_dz_playback_end();          /* restore steps before any later preset SAVE */
     gm_all_off();
 #endif
     motion_end();
@@ -1220,7 +1222,7 @@ static void seq_tick(track_t *t, uint32_t n)
         t->seq_pos = t->seq_pos >= 0x7FFFFFFFu ? (chain.running ? chain.carry : 0u) : t->seq_pos - cur_len;
 #if GOLANA
         if (!initial && t == &trk[0] && t->seq_idx + 1u == len) {
-            if (!gu_song_next()) {                  /* ONCE finished LAST */
+            if (!gu_song_next()) {                  /* ONCE: pattern/song finished */
                 seq_stop();
                 return;
             }

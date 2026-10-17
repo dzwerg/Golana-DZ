@@ -64,7 +64,9 @@ static uint8_t gu_pi, gu_view;                  /* the palette, HOME's drawing (
 /* virtual parameters (not a track parameter of part 1) */
 enum { GV_NONE = 0xFF, GV_RES = 200, GV_BPM, GV_TUNE, GV_CLOCK, GV_STEP, GV_STEPON, GV_MIDI, GV_PAL, GV_VIEW,
        GV_SSTEP, GV_SNOTE, GV_STYPE, GV_SFLAG, GV_SLEN,
-       GV_SONG_ON, GV_SONG_FIRST, GV_SONG_LAST, GV_SONG_REPEAT };   /* (the step sequencer: REC) */
+       GV_SONG_ON, GV_SONG_FIRST, GV_SONG_LAST, GV_SONG_REPEAT,
+       GV_DZ_BANK, GV_DZ_PATTERN, GV_DZ_SONG_ON, GV_DZ_PLAY_MODE,
+       GV_DZ_SONG_STEP, GV_DZ_SONG_STEPS, GV_DZ_SONG_BANK, GV_DZ_SONG_PATTERN };   /* (the step sequencer: REC) */
 typedef struct { uint8_t id; const char *label; const char *const *names; uint8_t nn; } gu_par_t;   /* nn: names' count */
 #define GN(a) a, (uint8_t)NELEM(a)                    /* (the lists have no 0 at their end: GOL_TP's GPE counts them) */
 typedef struct { uint8_t btn; const char *tab, *tshort; gu_par_t k[4]; } gu_page_t;
@@ -77,6 +79,7 @@ static const char *const N_GSTYPE[] = {"REST", "NOTE", "TIE"};
 static const char *const N_GSFLAG[] = {"OFF", "ACCENT", "SLIDE", "BOTH"};
 static const char *const N_GSONOFF[] = {"OFF", "ON"};
 static const char *const N_GSONGEND[] = {"ONCE", "REPEAT"};
+static const char *const N_DZ_PLAYMODE[] = {"ONCE", "LOOP"};
 /* the pages, grouped by the button that opens them (its pages side by side: the tabs). tab: the page's name on its
  * tab when it is open (after the button's name), tshort: on its tab while another page of the button is open */
 static const gu_page_t GU_PAGES[] = {
@@ -112,9 +115,12 @@ static const gu_page_t GU_PAGES[] = {
      {{P_AGATE, "GATE", 0}, {P_ASWING, "SWING", 0}, {P_AHOLD, "LATCH", GN(N_GONOFF)}, {GL_ARPKSYNC, "KEY SYNC", 0}}},
     {B_SEQ, "STEPS", "STEPS",
      {{GL_ARPLAST, "LAST STEP", 0}, {GV_STEP, "STEP", 0}, {GV_STEPON, "ON / OFF", GN(N_GONOFF)}, {GV_NONE, 0, 0}}},
-    {B_SEQ, "SONGMODE", "SONG",
-     {{GV_SONG_ON, "SONGMODE", GN(N_GSONOFF)}, {GV_SONG_FIRST, "FIRST PROG", 0},
-      {GV_SONG_LAST, "LAST PROG", 0}, {GV_SONG_REPEAT, "PLAY MODE", GN(N_GSONGEND)}}},
+    {B_SEQ, "BANK/PATTERN", "BANK",
+     {{GV_DZ_BANK, "BANK", 0}, {GV_DZ_PATTERN, "PATTERN", 0},
+      {GV_DZ_SONG_ON, "SONG MODE", GN(N_GSONOFF)}, {GV_DZ_PLAY_MODE, "PLAY MODE", GN(N_DZ_PLAYMODE)}}},
+    {B_SEQ, "SONG", "SONG ED",
+     {{GV_DZ_SONG_STEP, "SONG STEP", 0}, {GV_DZ_SONG_STEPS, "PLAY STEPS", 0},
+      {GV_DZ_SONG_BANK, "BANK", 0}, {GV_DZ_SONG_PATTERN, "PATTERN", 0}}},
     {B_REC, "PATTERN", "PATTERN",
      {{GV_SSTEP, "STEP", 0}, {GV_SNOTE, "NOTE", 0}, {GV_STYPE, "TYPE", GN(N_GSTYPE)}, {GV_SFLAG, "ACC / SLIDE", GN(N_GSFLAG)}}},
     {B_REC, "SETUP", "SETUP",
@@ -145,7 +151,22 @@ static struct {
     int8_t hot;                                  /* the card last turned (lit for a moment), -1 none */
     uint32_t sig_head, sig_list, sig_card[4], sig_body, sig_foot;
     uint8_t shown_save, shown_uboot;
+    uint8_t dz_seq_mode;    /* 0 original, 1 BANK/PATTERN, 2 SONG */
+    uint8_t dz_edit_active, dz_edit_index, dz_saved_dirty;
 } gu;
+
+/* DZ Stage 2: SEQ ALGO mode switch */
+/* UI-only RAM preview: no persistent storage or PLAY/REC wiring in this stage. */
+static dz_seq_model_t dz_model __attribute__((section(".pool")));
+/* Playback state: snapshots an existing program, never writes to preset flash. */
+static dz_seq_playback_t dz_play;
+static uint8_t dz_play_has_backup;
+static step_t dz_play_saved_steps[NSTEP] __attribute__((section(".pool")));
+static int16_t dz_play_saved_len;
+/* Preview preserves the currently loaded synth-program steps on REC entry. */
+static step_t dz_saved_steps[NSTEP] __attribute__((section(".pool")));
+static int16_t dz_saved_length;
+static uint8_t dz_saved_step_cursor;
 
 static track_t *gu_t(void) { return &trk[0]; }
 
@@ -206,30 +227,73 @@ static void gu_load_core(uint32_t k, uint32_t manual)
 }
 static void gu_load(uint32_t k)
 {
+    if (dz_play_has_backup)
+        return;                    /* don't replace the synth backing up PLAY */
     fm1_irq_off();
     gu_load_core(k, 1);
     fm1_irq_on();
 }
 
-/* A contiguous range of program slots is the song. The transport owns its
- * clock; only one program/pattern is active at a time. */
+/* DZ Stage 4: RAM pattern/song playback */
+/* PLAY uses the user's selected BANK/PATTERN or SONG list, not the legacy
+ * preset FIRST/LAST chain. Called from the audio ISR on sequence boundaries.
+ * Conversion is bounded to 64 mono steps; no flash operations occur here. */
+static void gu_dz_play_pattern(void)
+{
+    uint32_t i;
+    track_t *t = gu_t();
+    const dz_pattern_t *p = &dz_model.patterns[dz_seq_pat_index(dz_play.bank, dz_play.pattern)];
+    for (i = 0; i < NSTEP; ++i) {
+        const dz_pattern_step_t *ps = &p->step[i];
+        step_t *s = &t->step[i];
+        memset(s, 0, sizeof *s);
+        if (ps->flags & 4u) {
+            s->time = ST_TIE;
+        } else if (ps->note) {
+            s->time = ST_NOTE;
+            s->n = 1u;
+            s->note[0] = ps->note;
+            s->vel = 96u;
+            s->flags = (uint8_t)(ps->flags & (SF_ACCENT | SF_SLIDE | SF_RATCH));
+        } else
+            s->time = ST_REST;
+    }
+    t->p[P_SLEN] = (int16_t)clamp(dz_play.play_steps, 1, NSTEP);
+}
+
+/* seq_stop() calls this after releasing notes, including on ONCE completion. */
+static void gu_dz_playback_end(void)
+{
+    if (!dz_play_has_backup)
+        return;
+    memcpy(gu_t()->step, dz_play_saved_steps, sizeof dz_play_saved_steps);
+    gu_t()->p[P_SLEN] = dz_play_saved_len;
+    dz_play.running = 0u;
+    dz_play_has_backup = 0u;
+}
+
 static void gu_song_begin(void)
 {
-    if (gx.enabled)
-        gu_load_core(gx.first, 0);
+    track_t *t = gu_t();
+    if (dz_play_has_backup)
+        gu_dz_playback_end();
+    memcpy(dz_play_saved_steps, t->step, sizeof dz_play_saved_steps);
+    dz_play_saved_len = t->p[P_SLEN];
+    dz_play_has_backup = 1u;
+    dz_seq_play_start(&dz_model, &dz_play);
+    gu_dz_play_pattern();
 }
+
 static int gu_song_next(void)
 {
-    uint32_t next;
-    if (!gx.enabled)
-        return 1;
-    if (gu.prog >= gx.last) {
-        if (!gx.repeat)
-            return 0;                          /* ONCE: stop after LAST */
-        next = gx.first;
-    } else
-        next = gu.prog + 1u;
-    gu_load_core(next, 0);
+    if (!dz_play_has_backup)
+        return 0;                 /* unexpected call: fail safe */
+    if (!dz_seq_play_next(&dz_model, &dz_play))
+        return 0;                 /* ONCE: seq_tick will stop transport */
+    seq_release(gu_t());          /* don't carry notes across pattern boundaries */
+    gu_t()->rat_left = 0u;
+    gu_t()->nd_late = gu_t()->nd_early = ND_NONE;
+    gu_dz_play_pattern();
     return 1;
 }
 
@@ -301,6 +365,14 @@ static void gu_range(const gu_par_t *q, int32_t *lo, int32_t *hi)
     case GV_STYPE: *lo = 0; *hi = 2; return;
     case GV_SFLAG: *lo = 0; *hi = 3; return;
     case GV_SLEN: *lo = 1; *hi = NSTEP; return;
+    case GV_DZ_BANK:
+    case GV_DZ_SONG_BANK: *lo = 0; *hi = 3; return;
+    case GV_DZ_PATTERN:
+    case GV_DZ_SONG_PATTERN: *lo = 1; *hi = 16; return;
+    case GV_DZ_SONG_ON:
+    case GV_DZ_PLAY_MODE: *lo = 0; *hi = 1; return;
+    case GV_DZ_SONG_STEP: *lo = 1; *hi = DZ_NSONG; return;
+    case GV_DZ_SONG_STEPS: *lo = 1; *hi = DZ_NSTEP; return;
     case GV_SONG_ON: *lo = 0; *hi = 1; return;
     case GV_SONG_FIRST: *lo = 1; *hi = 32; return;
     case GV_SONG_LAST: *lo = (int32_t)gx.first + 1; *hi = 32; return;
@@ -346,6 +418,14 @@ static int32_t gu_get(const gu_par_t *q)
     case GV_STYPE: return gu_stype(gu_sst());
     case GV_SFLAG: return gu_sst()->flags & 3;
     case GV_SLEN: return (int32_t)gu_slen();
+    case GV_DZ_BANK: return dz_model.bank;
+    case GV_DZ_PATTERN: return (int32_t)dz_model.pattern + 1;
+    case GV_DZ_SONG_ON: return dz_model.song_mode;
+    case GV_DZ_PLAY_MODE: return dz_model.loop_mode;
+    case GV_DZ_SONG_STEP: return (int32_t)dz_model.song_step + 1;
+    case GV_DZ_SONG_STEPS: return dz_model.song[dz_model.song_step].play_steps;
+    case GV_DZ_SONG_BANK: return dz_model.song[dz_model.song_step].bank;
+    case GV_DZ_SONG_PATTERN: return (int32_t)dz_model.song[dz_model.song_step].pattern + 1;
     case GV_SONG_ON: return gx.enabled;
     case GV_SONG_FIRST: return (int32_t)gx.first + 1;
     case GV_SONG_LAST: return (int32_t)gx.last + 1;
@@ -362,6 +442,11 @@ static void gu_set(const gu_par_t *q, int32_t v)
     int32_t lo, hi;
     gu_range(q, &lo, &hi);
     v = clamp(v, lo, hi);
+    if (dz_play_has_backup && q->id >= GV_DZ_BANK && q->id <= GV_DZ_SONG_PATTERN &&
+        q->id != GV_DZ_SONG_STEP) {
+        gu_say("STOP FIRST", 0);     /* editing the playback list while running is unsafe */
+        return;
+    }
     if (gx_blocked && q->id >= GV_SONG_ON && q->id <= GV_SONG_REPEAT) {
         gu_say("PROJECTS FULL", 0);           /* all 4 legacy Felucca project pairs in use */
         return;
@@ -404,6 +489,14 @@ static void gu_set(const gu_par_t *q, int32_t v)
         return;
     }
     case GV_SLEN: t->p[P_SLEN] = (int16_t)v; gu.sstep = (uint8_t)(gu.sstep % (uint32_t)v); gu.dirty = 1; return;
+    case GV_DZ_BANK: dz_seq_select_pattern(&dz_model, (uint8_t)v, dz_model.pattern); return;
+    case GV_DZ_PATTERN: dz_seq_select_pattern(&dz_model, dz_model.bank, (uint8_t)(v - 1)); return;
+    case GV_DZ_SONG_ON: dz_model.song_mode = (uint8_t)v; return;
+    case GV_DZ_PLAY_MODE: dz_model.loop_mode = (uint8_t)v; return;
+    case GV_DZ_SONG_STEP: dz_seq_select_song_step(&dz_model, (uint8_t)(v - 1)); return;
+    case GV_DZ_SONG_STEPS: dz_seq_set_song_steps(&dz_model, (uint8_t)v); return;
+    case GV_DZ_SONG_BANK: dz_seq_set_song_bank(&dz_model, (uint8_t)v); return;
+    case GV_DZ_SONG_PATTERN: dz_seq_set_song_pattern(&dz_model, (uint8_t)(v - 1)); return;
     case GV_SONG_ON: gx.enabled = (uint8_t)v; gx_mark_dirty(); return;
     case GV_SONG_FIRST:
         gx.first = (uint8_t)(v - 1);
@@ -436,6 +529,9 @@ static void gu_text(const gu_par_t *q, char *b)
     if (q->id == GV_NONE) {
         b[0] = 0;
         return;
+    }
+    if (q->id == GV_DZ_BANK || q->id == GV_DZ_SONG_BANK) {
+        b[0] = (char)('A' + v); b[1] = 0; return;
     }
     if (q->id == GV_PAL || q->id == GV_VIEW) {
         str_cpy(b, q->id == GV_PAL ? N_GPAL[v & 3] : N_GVIEW[v % 3], 8);
@@ -896,6 +992,86 @@ static void gu_go(uint32_t page)
     gu.page = (uint8_t)(page % GU_NPAGE);
 }
 
+
+/* DZ Stage 3: edit selected bank pattern in RAM */
+static void gu_dz_editor_begin(void)
+{
+    uint32_t i;
+    track_t *t = gu_t();
+    uint8_t index = dz_seq_pat_index(dz_model.bank, dz_model.pattern);
+    dz_pattern_t *p = &dz_model.patterns[index];
+    memcpy(dz_saved_steps, t->step, sizeof dz_saved_steps);
+    dz_saved_length = t->p[P_SLEN];
+    dz_saved_step_cursor = gu.sstep;
+    gu.dz_saved_dirty = gu.dirty;
+    gu.dz_edit_index = index;
+    gu.dz_edit_active = 1u;
+    for (i = 0; i < NSTEP; ++i) {
+        const dz_pattern_step_t *ps = &p->step[i];
+        step_t *s = &t->step[i];
+        memset(s, 0, sizeof *s);
+        if (ps->flags & 4u) {
+            s->time = ST_TIE;
+        } else if (ps->note) {
+            s->time = ST_NOTE;
+            s->n = 1u;
+            s->note[0] = ps->note;
+            s->vel = 96u;
+            s->flags = (uint8_t)(ps->flags & (SF_ACCENT | SF_SLIDE | SF_RATCH));
+        } else {
+            s->time = ST_REST;
+        }
+    }
+    t->p[P_SLEN] = (int16_t)(p->length ? p->length : NSTEP);
+    gu.sstep = 0u;
+    gu.dirty = 0u;
+    ui.force = 1u;
+}
+
+static void gu_dz_editor_end(void)
+{
+    uint32_t i;
+    track_t *t = gu_t();
+    dz_pattern_t *p;
+    if (!gu.dz_edit_active)
+        return;
+    p = &dz_model.patterns[gu.dz_edit_index];
+    p->length = (uint8_t)clamp(t->p[P_SLEN], 1, NSTEP);
+    for (i = 0; i < NSTEP; ++i) {
+        const step_t *s = &t->step[i];
+        dz_pattern_step_t *ps = &p->step[i];
+        if (s->time == ST_TIE) {
+            ps->note = 0u;
+            ps->flags = 4u;
+        } else if (s->time == ST_NOTE && s->n) {
+            ps->note = s->note[0];
+            ps->flags = (uint8_t)(s->flags & (SF_ACCENT | SF_SLIDE | SF_RATCH));
+        } else {
+            ps->note = 0u;
+            ps->flags = 0u;
+        }
+    }
+    memcpy(t->step, dz_saved_steps, sizeof dz_saved_steps);
+    t->p[P_SLEN] = dz_saved_length;
+    gu.sstep = dz_saved_step_cursor;
+    gu.dirty = gu.dz_saved_dirty;
+    gu.dz_edit_active = 0u;
+    ui.force = 1u;
+}
+
+static uint32_t gu_dz_seq_page(uint8_t mode)
+{
+    uint32_t i;
+    for (i = 0; i < GU_NPAGE; i++) {
+        if (GU_PAGES[i].btn == B_SEQ &&
+            ((mode == 0 && GU_PAGES[i].k[0].id == GL_ARPON) ||
+             (mode == 1 && GU_PAGES[i].k[0].id == GV_DZ_BANK) ||
+             (mode == 2 && GU_PAGES[i].k[0].id == GV_DZ_SONG_STEP)))
+            return i;
+    }
+    return gu.page;
+}
+
 /* a page button: its first page, or (on one of its pages) the next of them, round */
 static void gu_button(uint32_t b)
 {
@@ -907,8 +1083,19 @@ static void gu_button(uint32_t b)
         }
     if (first == GU_NPAGE)
         return;
+    if (b == B_SEQ) {
+        if (GU_PAGES[gu.page].btn != B_SEQ) {
+            gu_go(gu_dz_seq_page(gu.dz_seq_mode));
+            return;
+        }
+        if (gu.dz_seq_mode != 0)
+            return;    /* ALGO alone switches BANK/PATTERN/SONG */
+    }
     if (GU_PAGES[gu.page].btn == b) {
         pi = gu.page + 1u;
+        if (b == B_SEQ && (pi >= GU_NPAGE || GU_PAGES[pi].btn != B_SEQ ||
+                           GU_PAGES[pi].k[0].id == GV_DZ_BANK))
+            pi = first;
         gu_go(pi < GU_NPAGE && GU_PAGES[pi].btn == b ? pi : first);
     } else {
         gu_go(first);
@@ -974,7 +1161,10 @@ static void gu_input(void)
             v = ui.mpc[k];
             ui.mpc[k] = 0;
             fm1_irq_on();
-            gu_load((v & 127u) % GL_NPROG);
+            if (!gu.dz_edit_active && !dz_play_has_backup)
+                gu_load((v & 127u) % GL_NPROG);
+            else
+                gu_say("STOP FIRST", 0);
         }
     if (ui.uboot)
         return;
@@ -987,7 +1177,9 @@ static void gu_input(void)
             }
     }
     s = panel_enc(EN_PRESET);
-    if (s) {
+    if (s && (gu.dz_edit_active || dz_play_has_backup)) {
+        gu_say("STOP FIRST", 0);
+    } else if (s) {
         if (gu.save) {
             gu.save_slot = (uint8_t)(((int32_t)gu.save_slot + s % (int32_t)GL_NPROG + (int32_t)GL_NPROG) %
                                      (int32_t)GL_NPROG);
@@ -1013,7 +1205,12 @@ static void gu_input(void)
         for (k = 0; k < 4u; k++)
             gu_turn(k, panel_enc(EN_K1 + k));
         s = panel_enc(EN_ALGO);
-        if (s) {                                     /* CUTOFF, from any page */
+        if (s && GU_PAGES[gu.page].btn == B_SEQ) {
+            gu.dz_seq_mode = (uint8_t)(((int32_t)gu.dz_seq_mode + (s > 0 ? 1 : 2)) % 3);
+            gu_go(gu_dz_seq_page(gu.dz_seq_mode));
+            gu.hot = -1;
+            ui.force = 1;
+        } else if (s) {                       /* CUTOFF outside SEQ */
             static const gu_par_t CUT = {GL_CUTOFF, "CUTOFF", 0};
             char v[8];
             gu_set(&CUT, gu_get(&CUT) + gu_accel(s, 127));
@@ -1063,6 +1260,23 @@ static void gu_input(void)
         case B_REC:
         case B_SEQ:
         case B_FX:
+            if (b == B_REC && !gu.dz_edit_active &&
+                GU_PAGES[gu.page].btn == B_SEQ && gu.dz_seq_mode == 1u) {
+                if (song.playing || transport_busy()) {
+                    gu_say("STOP FIRST", 0);
+                    break;
+                }
+                gu_dz_editor_begin();
+                gu_button(B_REC);       /* first REC page: STEP/NOTE/TYPE/ACC */
+                break;
+            }
+            if (gu.dz_edit_active && b != B_REC) {
+                gu_dz_editor_end();    /* commit to RAM bank, restore synth program */
+                if (b == B_SEQ) {
+                    gu_go(gu_dz_seq_page(1u));
+                    break;            /* return to BANK/PATTERN */
+                }
+            }
             gu_button(b);
             break;
         case B_ARP: {
@@ -1072,6 +1286,10 @@ static void gu_input(void)
             break;
         }
         case B_PLAY:                                     /* the sequencer: play / stop */
+            if (gu.dz_edit_active) {
+                gu_say("EXIT REC", 0);  /* Stage 3: playback not wired to RAM patterns */
+                break;
+            }
             transport_req = song.playing || seq_counting() ? 2u : 1u;
             gu_say(song.playing ? "STOP" : "PLAY", 0);
             break;
@@ -1088,6 +1306,14 @@ static void gu_input(void)
             }
             break;
         case B_SAVE:
+            if (gu.dz_edit_active) {
+                gu_say("RAM ONLY", 0);  /* no flash writes to old program slots */
+                break;
+            }
+            if (dz_play_has_backup) {
+                gu_say("STOP FIRST", 0);
+                break;
+            }
             gu_save_open();
             break;
         default:
@@ -1104,6 +1330,8 @@ static void gu_boot(void)
     gu.hot = -1;
     gu.shown_uboot = 0xFF;
     gu_prefs_load();
+    dz_seq_model_init(&dz_model);
+    gu.dz_seq_mode = 0;
     gu_load(0);
     gu.ready = 1;
 }

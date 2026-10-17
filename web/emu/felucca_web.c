@@ -206,6 +206,7 @@ static void fl_plain_window_init(void) {}
 #include "../../firmware/src/upreset.c"
 #if GOLANA
 #include "../../firmware/src/golana_ext.c"
+#include "../../firmware/src/golana_pattern_model.c"
 #endif
 #include "../../firmware/src/project.c"
 

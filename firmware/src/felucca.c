@@ -94,6 +94,7 @@
 #include "upreset.c"             /* user presets (RAM mirror; flash with FELUCCA_FLASH) */
 #if GOLANA
 #include "golana_ext.c"          /* 48 additional steps per program, song settings */
+#include "golana_pattern_model.c" /* DZ Stage 2: pattern/song RAM model, not wired to flash */
 #endif
 #include "project.c"
 #if FELUCCA_OTA

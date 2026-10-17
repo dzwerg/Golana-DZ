@@ -1,6 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 #include "golana_pattern_model.h"
-#include <string.h>
 
 static uint8_t dz_min_u8(uint8_t value, uint8_t max)
 {
@@ -16,7 +15,8 @@ uint8_t dz_seq_pat_index(uint8_t bank, uint8_t pattern)
 void dz_seq_model_init(dz_seq_model_t *m)
 {
     uint32_t i;
-    memset(m, 0, sizeof *m);
+    uint8_t *dst = (uint8_t *)m;
+    for (i = 0; i < sizeof *m; ++i) dst[i] = 0;
     m->song_count = 1u;
     m->loop_mode = 1u;
     for (i = 0; i < DZ_NPAT; ++i)
@@ -70,7 +70,9 @@ static void dz_seq_play_song_entry(const dz_seq_model_t *m, dz_seq_playback_t *p
 
 void dz_seq_play_start(const dz_seq_model_t *m, dz_seq_playback_t *p)
 {
-    memset(p, 0, sizeof *p);
+    uint8_t *dst = (uint8_t *)p;
+    uint32_t i;
+    for (i = 0; i < sizeof *p; ++i) dst[i] = 0;
     p->song_mode = !!m->song_mode;
     p->loop_mode = !!m->loop_mode;
     p->running = 1u;
