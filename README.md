@@ -1,107 +1,150 @@
-<p align="center">
-  <img src="https://raw.githubusercontent.com/Gadlele/Golana/gh-pages/img/splash.gif" width="240" alt="Golana's power-on animation">
-</p>
+# Golana DZ Edition
 
-<h1 align="center">Golana</h1>
+**64-step sequencing, Song Mode and USB MIDI OUT for the M-VAVE FM-1.**
 
-<p align="center">
-  <b>One analog-style synth for the M-VAVE FM-1</b><br>
-  laid out like the classic microKORG, with a screen that draws the sound
-</p>
+[![Release](https://img.shields.io/badge/release-v0.1.0--beta-orange)](https://github.com/dzwerg/Golana-DZ/releases/tag/v0.1.0-beta)
+![Device](https://img.shields.io/badge/device-M--VAVE%20FM--1-blue)
+[![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blueviolet)](LICENSE)
 
-<p align="center">
-  <a href="https://gadlele.github.io/Golana/install/"><b>Install</b></a> ·
-  <a href="https://gadlele.github.io/Golana/try/"><b>Try it in your browser</b></a> ·
-  <a href="https://gadlele.github.io/Golana/">Website</a> ·
-  <a href="https://gadlele.github.io/Golana/firmware/Golana-1.0.fwsc">Download 1.0</a>
-</p>
+**Golana DZ Edition** is an experimental, open-source fork of [Golana by Gadlele](https://github.com/Gadlele/Golana), itself based on [Felucca](https://github.com/hugelton/Felucca). It keeps Golana's expressive synthesizer and hardware-friendly interface while extending the FM-1 into a more capable MIDI song sequencer.
 
-<p align="center">
-  <img alt="version 1.0" src="https://img.shields.io/badge/version-1.0-ffb547?style=flat-square&labelColor=0e1118">
-  <img alt="FM-1" src="https://img.shields.io/badge/for-M--VAVE%20FM--1-f07a9c?style=flat-square&labelColor=0e1118">
-  <img alt="GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-b092ff?style=flat-square&labelColor=0e1118">
-</p>
+> **This is the DZ fork, not the original Golana 1.0 firmware.** Use the DZ download below. The original Golana website, web installer and firmware links install **Gadlele's original version**, not this fork.
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/Gadlele/Golana/gh-pages/img/device.png" width="820" alt="The FM-1 running Golana">
-</p>
+### [Download Golana DZ Edition v0.1.0-beta (.fwsc)](https://github.com/dzwerg/Golana-DZ/releases/download/v0.1.0-beta/Golana-DZ-v0.1.0-beta.fwsc)
 
-**Golana** turns the M-VAVE FM-1 into a single, deep analog-style synthesizer with its own interface: two oscillators,
-five filters, two envelopes, two LFOs, a patch bay, an arpeggiator and a step sequencer. Every page draws what it does.
-It is a fork of [Felucca](https://github.com/hugelton/Felucca).
+[**All DZ releases**](https://github.com/dzwerg/Golana-DZ/releases) · [DZ extension notes](docs/DZ_EDITION.md) · [Original Golana](https://github.com/Gadlele/Golana) · [Original Golana manual](docs/MANUAL.md)
 
-## The synth
+## What's new in the DZ Edition?
 
-| Section | |
+| Feature | DZ Edition v0.1.0-beta |
 | --- | --- |
-| **OSC 1** | SAW (an octave-up saw blended in), PULSE (width), TRI (wavefold), SINE (cross modulation from OSC 2) |
-| **OSC 2** | SAW, SQR, TRI · RING, SYNC or both · semitone, tune |
-| **MIXER** | OSC 1, OSC 2, NOISE, and FOLD, a wavefolder before the filter |
-| **FILTER** | LPF24, LPF12, BPF, HPF and **MS20**, a driven 12 dB low-pass whose resonance screams · EG INT, KEY TRACK |
-| **EG / LFO** | FILTER EG and AMP EG · two LFOs (SAW, SQR, TRI, SIN, S&H) with key sync and tempo sync |
-| **PATCH 1–4** | FEG, AEG, LFO 1, LFO 2, velocity or keyboard to pitch, OSC 2, CTRL 1, noise, cutoff, amp or LFO 2's rate |
-| **VOICE** | POLY, MONO, LEGATO, UNISON (eight detuned oscillators) · DETUNE, PORTA, SPREAD |
-| **ARP / SEQ** | six arp types over 1–4 octaves with latch and swing · a 16-step sequencer with ties, accents and slides |
-| **EFFECTS** | MOD FX (chorus, flanger, ensemble, phaser, METAL distortion), delay, reverb, in three orders |
-| **PROGRAMS** | 32: FAT BASS, ACID LINE, SYNC PAD, 80S BRASS, SOFT BELLS, S&H TEXTURE… and sixteen free |
+| Step sequencer | **Up to 64 steps** per program (instead of 16) |
+| Programs | **32** sound-and-pattern slots |
+| Maximum sequential song length | **32 × 64 = 2,048 steps** (128 bars at 4/4 and 1/16 resolution) |
+| Song Mode | Sequentially plays programs between selectable **FIRST** and **LAST** |
+| Playback | **ONCE** or **REPEAT** (loop the program range) |
+| USB MIDI OUT | Transmits played/sequence notes to external MIDI instruments |
+| Persistence | Extended steps and Song Mode settings stored in a separate flash extension |
+| Browser emulator | DZ compatibility changes in the emulator sources |
+| Synth engine | The original Golana synthesizer and interface remain available |
 
-## On the screen
+The DZ extension has been **built and exercised on a physical M-VAVE FM-1**. Song Mode, sequential program playback, USB MIDI OUT and MIDI melody import have been tested on hardware. This is still a **beta**, not a comprehensive compatibility or long-term reliability certification.
 
-<p align="center">
-  <img src="https://raw.githubusercontent.com/Gadlele/Golana/gh-pages/img/home_notes.png" width="200" alt="HOME">
-  <img src="https://raw.githubusercontent.com/Gadlele/Golana/gh-pages/img/edit.png" width="200" alt="EDIT">
-  <img src="https://raw.githubusercontent.com/Gadlele/Golana/gh-pages/img/scl.png" width="200" alt="FILTER">
-  <img src="https://raw.githubusercontent.com/Gadlele/Golana/gh-pages/img/env.png" width="200" alt="ENV">
-  <br>
-  <img src="https://raw.githubusercontent.com/Gadlele/Golana/gh-pages/img/lfo.png" width="200" alt="LFO">
-  <img src="https://raw.githubusercontent.com/Gadlele/Golana/gh-pages/img/patch.png" width="200" alt="PATCH">
-  <img src="https://raw.githubusercontent.com/Gadlele/Golana/gh-pages/img/fx.png" width="200" alt="FX">
-  <img src="https://raw.githubusercontent.com/Gadlele/Golana/gh-pages/img/glo4.png" width="200" alt="SETUP">
-</p>
+## Quick start on the FM-1
 
-Each page draws its shape from the values: the waves, the filter's curve, the envelopes, the LFOs running. HOME draws
-the sound playing (RIDGE, RING or ORBIT). Four palettes: NIGHT, CRT, PAPER and NEON.
+### Edit a 64-step pattern
 
-## The controls
+1. Turn **PRESETS** to select a program.
+2. Press **REC** to reach **PATTERN**; enter notes and choose NOTE, REST or TIE for each step.
+3. Press **REC** again for **SETUP** and set **LENGTH** (1–64), resolution, gate and swing.
+4. Stop playback and use **SAVE** to write the program (sound **and** pattern) to its slot.
 
-| Control | |
-| --- | --- |
-| **HOME** | PERFORM: cutoff, resonance, EG int, LFO 1 rate |
-| **EDIT / SCL / ENV / LFO** | the oscillators and mixer / the filter / the envelopes / the LFOs and the patch bay |
-| **GLO / REC / SEQ / FX** | amp, voice, global, setup / the sequencer / the arpeggiator / the effects |
-| **KNOB 1–4** | the four cards on the screen · **ALGORITHM**: the cutoff from any page · **PRESETS**: the program |
-| **ARP / PLAY / SAVE** | arpeggiator on and off / the sequencer / write a program |
+**Important:** Each saved program contains both the synthesizer settings and the sequencer pattern. Saving to an occupied program slot overwrites its previous contents.
 
-## Install
+### Play a song across programs
 
-1. Open the **[web installer](https://gadlele.github.io/Golana/install/)** in Chrome or Edge on a computer.
-2. Connect the FM-1 with a USB **data** cable, straight into the computer.
-3. Follow the five steps: the checklist, a backup, the build, connect, install. About two minutes.
+1. Create and **save** the patterns in consecutive program slots.
+2. Press **SEQ** repeatedly until the **SONGMODE** page appears.
+3. Set **SONGMODE = ON**.
+4. Set **FIRST PROG** and **LAST PROG** to your desired range (for example, 1 to 3).
+5. Choose **PLAY MODE = ONCE** or **REPEAT**.
+6. Press **PLAY**.
 
-From a terminal instead: `python3 tools/fm1_install.py Golana-1.0.fwsc` (needs `pip install mido python-rtmidi`).
+The player advances in order from FIRST to LAST. **REPEAT** loops the complete selected range; **ONCE** stops at its end. Each program can have its own sound and pattern settings.
 
-**If something goes wrong:** switch the FM-1 on while holding **OCT−**. It starts **GOLANA USB RESCUE**, with only
-USB, ready for a new install (it also starts by itself after two failed starts). The firmware never writes the FM-1's
-boot code, and the installer can put the official M-VAVE firmware back at any time.
+**Example:** Three 64-step programs contain up to 192 steps. At 1/16 resolution and 4/4 time, that is 12 bars. All 32 slots together can reach 2,048 steps when each uses its full 64-step length.
 
-## The code
+### Sequence external instruments via USB MIDI
 
-| | |
-| --- | --- |
-| `main` | the latest release, now **1.0** |
-| `next` | the work on the next version |
-| [Releases](https://github.com/Gadlele/Golana/releases) | every version: its notes and its package |
-| [`gh-pages`](https://github.com/Gadlele/Golana/tree/gh-pages) | the website: project page, installer, emulator, package |
+Connect the FM-1 to a compatible USB-MIDI host (computer, supported mobile device or other host equipment), then route its outgoing MIDI notes to a synthesizer or sampler. **USB MIDI OUT has been verified on real hardware**, including sequence playback. Actual routing and host compatibility depend on the connected equipment.
 
-- [The manual](docs/MANUAL.md): every section, page and control
-- [What changed](CHANGELOG.md), version by version · [How a version is released](RELEASING.md)
-- Building: [BUILDING.md](BUILDING.md) (`./build.sh --release 1.0`); the tests: `sh tests/run_tests.sh`
+The FM-1's internal Golana sound engine can still be used; **this is not yet a multi-track MIDI workstation**.
 
-## Credits
+## Installation
 
-Golana is by **Gadlele**. It is a fork of [Felucca](https://github.com/hugelton/Felucca) by Leo Kuroshita
-(@kurogedelic), Hügelton Instruments. The USB rescue follows zvenson's [dinghy](https://github.com/zvenson/dinghy).
-See [LICENSING.md](LICENSING.md) for every bundled work and its licence.
+**Download the DZ firmware package from this repository's [Releases](https://github.com/dzwerg/Golana-DZ/releases)**. The experimental v0.1.0-beta package is:
 
-Golana is free software under the [GPL-3.0](LICENSE), with no warranty. M-VAVE and FM-1 are trademarks of their
-respective owners, microKORG is a trademark of Korg; Golana is independent and not affiliated with them.
+`Golana-DZ-v0.1.0-beta.fwsc`
+
+Before flashing:
+
+- Confirm that you have an **M-VAVE FM-1**, a reliable USB **data** cable and a suitable computer.
+- Back up presets, patterns and any other data you cannot afford to lose.
+- Keep a copy of your current working firmware and make sure you understand the recovery procedure.
+- **Do not** use the original Golana web installer or its `Golana-1.0.fwsc` download if you intend to install DZ Edition.
+
+### Command-line installation (Windows PowerShell)
+
+The project includes the installer script inherited from Felucca/Golana. With Python installed:
+
+```powershell
+py -m pip install mido python-rtmidi
+git clone https://github.com/dzwerg/Golana-DZ.git
+cd Golana-DZ
+py tools/fm1_install.py --info
+py tools/fm1_install.py "C:\path\to\Golana-DZ-v0.1.0-beta.fwsc"
+```
+
+Replace the example path with the actual location of your downloaded `.fwsc` file. Read the installer's prompts before proceeding. For Linux/macOS, use `python3` instead of `py` if appropriate.
+
+For background on building, installing and recovery, see [BUILDING.md](BUILDING.md). **Flash experimental firmware at your own risk.**
+
+## Storage and firmware compatibility — read before flashing
+
+The original Golana user-preset format stores the first 16 steps. DZ Edition adds **48 extra steps per program** (steps 17–64) and Song Mode settings in a separate flash record. Its code uses an A/B commit scheme and tries to select an unused legacy project-sector pair, preferring project D; if all such pairs are occupied, saving the extension is blocked.
+
+These safeguards are implemented in [`firmware/src/golana_ext.c`](firmware/src/golana_ext.c), but **they are not a guarantee of compatibility with every existing flash layout or firmware downgrade**.
+
+In particular:
+
+- Make a backup before switching to DZ or switching back to original Golana/Felucca.
+- Test **save → power off → restart → reload → verify steps 17–64** on your own hardware before relying on stored songs.
+- Do not assume that another firmware understands or preserves DZ's extra-step storage.
+- A program's first 16 steps and its additional 48 steps use different stored data structures; losing the extension can lose the latter.
+- A/B storage reduces some failure risks but does **not** eliminate all risk of data loss or failed writes.
+
+## Current limitations
+
+- **One sequenced note per step** in the stored pattern. The Golana synth itself supports polyphonic playing, but stored patterns are not yet polyphonic piano-roll sequences.
+- Song Mode plays a **contiguous program range**; it does not yet offer arbitrary song arrangements such as A–B–A–C without duplicating patterns.
+- **Sounds and patterns are not independent**: a program stores both.
+- No built-in Standard MIDI File (`.mid`) player and no complete General MIDI sound set. MIDI import demonstrated during development used **separate host-side scripts**, not an on-device MIDI file browser.
+- Flash persistence, firmware transitions and every possible host/device MIDI combination still need wider testing.
+
+## The Golana synthesizer is still here
+
+DZ Edition retains the original Golana architecture: two oscillators (including saw, pulse, triangle and sine options), oscillator modulation, five filter types, independent filter and amplifier envelopes, LFOs, modulation routes, arpeggiator, effects and its distinctive on-device visual interface.
+
+For the detailed instrument controls, see the [original Golana manual](docs/MANUAL.md) and [upstream project](https://github.com/Gadlele/Golana). Some original manual pages may describe the upstream **16-step** sequencer rather than DZ's 64-step extension; the instructions in this README take precedence for DZ-specific features.
+
+## Building from source
+
+This repository includes the source for the firmware and host tests. Builds need the JieLi toolchain, the AC79 SDK and the other prerequisites documented in [BUILDING.md](BUILDING.md).
+
+On a configured Linux/WSL build system:
+
+```bash
+./build.sh
+```
+
+The ordinary development build writes `build/felucca.bin` and `build/felucca.fwsc`. The published v0.1.0-beta firmware package was built successfully, with the image and linker memory checks passing.
+
+**Do not confuse the `.fwsc` update package with the `.bin` application file.**
+
+## Roadmap (not yet implemented)
+
+- Separate **synth sounds**, **sequencer patterns** and **song arrangements**.
+- Independent pattern banks, reusable arrangements and better MIDI sequencing workflows.
+- Extended persistent song capacity, with careful flash-layout design and testing.
+- Explore a lightweight General MIDI-compatible sound engine / MIDI-file playback mode.
+
+## Credits and licence
+
+- **Golana**: [Gadlele](https://github.com/Gadlele/Golana) — original synthesizer, UI and project.
+- **Felucca**: [Leo Kuroshita / Hügelton Instruments](https://github.com/hugelton/Felucca) — underlying firmware, tools and components.
+- **Golana DZ Edition**: [dzwerg](https://github.com/dzwerg) — DZ-specific sequencer, Song Mode and MIDI extensions built on these projects.
+- Other authors and third-party dependencies: [LICENSING.md](LICENSING.md) and [LICENSES/](LICENSES/).
+
+Licensed under **GPL-3.0-only** as described in [LICENSE](LICENSE). The firmware update package also contains separately licensed components from the JieLi AC79 SDK; see the licence material attached to the [release](https://github.com/dzwerg/Golana-DZ/releases/tag/v0.1.0-beta).
+
+This is an independent community firmware project. **M-VAVE and FM-1 are trademarks of their respective owners**; Golana DZ Edition is not affiliated with or endorsed by M-VAVE.
