@@ -170,6 +170,10 @@ static void lcd_init(void) {}
 
 /* ------------------------------------------------------------ the flash --- */
 static uint32_t web_flash_writes;
+/* Fault injection exists ONLY in native/wasm builds explicitly defining DZ_TEST_FAULTS. */
+#ifdef DZ_TEST_FAULTS
+static uint32_t dz_test_fail_sector = 0xFFFFFFFFu;
+#endif
 static uint8_t flash_ok;
 static int st_read(uint32_t off, void *dst, uint32_t n)
 {
@@ -192,6 +196,10 @@ static int st_prog(uint32_t off, const void *src, uint32_t n)       /* NOR: a wr
     uint32_t i;
     if (off >= sizeof nor || n > sizeof nor - off)
         return -8;
+#ifdef DZ_TEST_FAULTS
+    if ((off & ~4095u) == dz_test_fail_sector)
+        return -91;  /* simulator-only: program failure on chosen 4 KiB sector */
+#endif
     for (i = 0; i < n; i++)
         nor[off + i] &= s[i];
     web_flash_writes++;

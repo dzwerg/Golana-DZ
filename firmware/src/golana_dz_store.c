@@ -26,6 +26,8 @@ static uint8_t dz_store_enabled, dz_store_dirty;
 static uint8_t dz_store_have_commit, dz_store_copy[2];
 static uint32_t dz_store_generation, dz_store_edited_ms, dz_store_last_try_ms;
 static uint8_t dz_store_tried;
+/* Set on a real NOR write/verify failure; cleared only by a complete two-page commit. */
+static uint8_t dz_store_error;
 
 /* 12 bits: note 7, flags 5 (TIE bit2, RATCH bits3..4). */
 static void dz_store_pack12(uint8_t *dst, const dz_pattern_step_t *a, const dz_pattern_step_t *b)
@@ -147,6 +149,7 @@ static void dz_store_boot(dz_seq_model_t *m)
     dz_store_generation = 0u;
     dz_store_edited_ms = dz_store_last_try_ms = 0u;
     dz_store_tried = 0u;
+    dz_store_error = 0u;
     dz_project_slot[0] = dz_project_slot[1] = 0xFFu;
     if (!flash_ok) return;
     if (!gx_blocked && gx_project_slot < 4u)
@@ -244,11 +247,14 @@ static void dz_store_poll(const dz_seq_model_t *m, int allowed)
         to[half] = dz_store_have_commit ? (uint8_t)(1u - dz_store_copy[half]) : 0u;
     for (half = 0; half < 2u; half++) {
         dz_store_encode(&dz_store_io, m, (uint8_t)half, generation);
-        if (st_save_to(OBJ_DZ_PAGE0 + half, &dz_store_io, sizeof dz_store_io, to[half]))
-            return;   /* old *paired* generation still intact */
+        if (st_save_to(OBJ_DZ_PAGE0 + half, &dz_store_io, sizeof dz_store_io, to[half])) {
+            dz_store_error = 1u;
+            return;   /* old *paired* generation still intact; retry later */
+        }
     }
     dz_store_have_commit = 1u;
     dz_store_copy[0] = to[0]; dz_store_copy[1] = to[1];
     dz_store_generation = generation;
     dz_store_dirty = 0u;
+    dz_store_error = 0u;
 }

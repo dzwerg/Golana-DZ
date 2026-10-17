@@ -1160,7 +1160,12 @@ static void gu_input(void)
     if (!gu.ready)
         return;
     gx_poll();
-    dz_store_poll(&dz_model, !gu.dz_edit_active && !gu.save);
+    {
+        uint8_t was_error = dz_store_error;
+        dz_store_poll(&dz_model, !gu.dz_edit_active && !gu.save);
+        if (!was_error && dz_store_error)
+            gu_say("SAVE FAILED", 0);
+    }
     for (k = 0; k < NTRK; k++)                       /* MIDI Program Change: a program */
         if (ui.mpc[k]) {
             uint32_t v;
