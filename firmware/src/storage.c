@@ -32,6 +32,7 @@ enum { OBJ_SETTINGS, OBJ_PROJECT0, OBJ_UPRESET0 = OBJ_PROJECT0 + 4, OBJ_FM6BANK 
        OBJ_AUTOSAVE,
 #if GOLANA
        OBJ_GOLANA_EXT,   /* reserved Felucca project D pair, only if that project is empty */
+       OBJ_DZ_PAGE0, OBJ_DZ_PAGE1, /* two extra DZ-owned project pairs */
 #endif
        OBJ_COUNT };
 #define OBJ_FM6VB 32u                          /* the voice bank's commit records (fm6_vbank.c; >= OBJ_COUNT: st_load
@@ -68,6 +69,7 @@ static uint32_t st_crc32(const void *p, uint32_t n) { return ~st_crc32_add(0xFFF
 #if GOLANA
 /* The extension selects an unused Felucca project pair (prefer D) on boot. */
 static uint8_t gx_project_slot = 3u;
+static uint8_t dz_project_slot[2] = {0xFFu, 0xFFu};
 #endif
 static uint32_t st_sector(uint32_t obj, uint32_t copy)  /* flash offset of copy A (0) / B (1) */
 {
@@ -80,6 +82,8 @@ static uint32_t st_sector(uint32_t obj, uint32_t copy)  /* flash offset of copy 
 #if GOLANA
     if (obj == OBJ_GOLANA_EXT)
         return 0x97000u + (uint32_t)gx_project_slot * 2u * ST_SECTOR + copy * ST_SECTOR;
+    if (obj == OBJ_DZ_PAGE0 || obj == OBJ_DZ_PAGE1)
+        return 0x97000u + (uint32_t)dz_project_slot[obj - OBJ_DZ_PAGE0] * 2u * ST_SECTOR + copy * ST_SECTOR;
 #endif
     if (obj >= OBJ_UPRESET0)
         return 0xDC000u + (obj - OBJ_UPRESET0) * 2u * ST_SECTOR + copy * ST_SECTOR;

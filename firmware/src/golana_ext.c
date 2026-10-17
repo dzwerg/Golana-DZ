@@ -34,6 +34,19 @@ static void gx_reset(void)
     gx.magic = GX_MAGIC;
     gx.last = GL_NPROG - 1u;
 }
+static int gx_pair_blank(uint8_t slot)
+{
+    uint32_t c, off, i;
+    uint8_t buf[64];
+    uint32_t base = 0x97000u + (uint32_t)slot * 2u * ST_SECTOR;
+    if (slot >= 4u) return 0;
+    for (c = 0; c < 2u; c++)
+        for (off = 0; off < ST_SECTOR; off += sizeof buf) {
+            if (st_read(base + c * ST_SECTOR + off, buf, sizeof buf)) return 0;
+            for (i = 0; i < sizeof buf; i++) if (buf[i] != 0xFFu) return 0;
+        }
+    return 1;
+}
 static void gx_boot(void)
 {
 #if FELUCCA_FLASH
@@ -62,7 +75,8 @@ static void gx_boot(void)
             for (i = 4u; i > 0u; i--) {
                 gx_project_slot = (uint8_t)(i - 1u);
                 if (st_head(OBJ_PROJECT0 + i - 1u, 0u, &h) != 0 &&
-                    st_head(OBJ_PROJECT0 + i - 1u, 1u, &h) != 0) {
+                    st_head(OBJ_PROJECT0 + i - 1u, 1u, &h) != 0 &&
+                    gx_pair_blank((uint8_t)(i - 1u))) {
                     gx_blocked = 0u;
                     break;
                 }

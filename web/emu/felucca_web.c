@@ -209,6 +209,9 @@ static void fl_plain_window_init(void) {}
 #include "../../firmware/src/golana_pattern_model.c"
 #endif
 #include "../../firmware/src/project.c"
+#if GOLANA
+#include "../../firmware/src/golana_dz_store.c"
+#endif
 
 /* ------------------------------------------------- main.c and its HAL --- */
 typedef struct { uint32_t magic, count, vec, pc, emu, dbg, rets; } fm1_crash_t;

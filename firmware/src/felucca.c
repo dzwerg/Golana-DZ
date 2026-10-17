@@ -97,6 +97,9 @@
 #include "golana_pattern_model.c" /* DZ Stage 2: pattern/song RAM model, not wired to flash */
 #endif
 #include "project.c"
+#if GOLANA
+#include "golana_dz_store.c" /* DZ: two-page crash-consistent flash store */
+#endif
 #if FELUCCA_OTA
 #if GOLANA
 static uint8_t rescue_active;            /* main.c golana_rescue: the USB rescue runs (no audio, no UI) */

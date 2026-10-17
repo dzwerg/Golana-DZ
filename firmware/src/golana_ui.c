@@ -436,6 +436,11 @@ static int32_t gu_get(const gu_par_t *q)
 }
 
 static void gu_say(const char *a, const char *b); /* declared below: flash-block toast */
+static void gu_dz_mark_dirty(void)
+{
+    dz_store_mark_dirty();
+    if (!dz_store_enabled) gu_say("RAM ONLY", 0);
+}
 static void gu_set(const gu_par_t *q, int32_t v)
 {
     track_t *t = gu_t();
@@ -489,14 +494,14 @@ static void gu_set(const gu_par_t *q, int32_t v)
         return;
     }
     case GV_SLEN: t->p[P_SLEN] = (int16_t)v; gu.sstep = (uint8_t)(gu.sstep % (uint32_t)v); gu.dirty = 1; return;
-    case GV_DZ_BANK: dz_seq_select_pattern(&dz_model, (uint8_t)v, dz_model.pattern); return;
-    case GV_DZ_PATTERN: dz_seq_select_pattern(&dz_model, dz_model.bank, (uint8_t)(v - 1)); return;
-    case GV_DZ_SONG_ON: dz_model.song_mode = (uint8_t)v; return;
-    case GV_DZ_PLAY_MODE: dz_model.loop_mode = (uint8_t)v; return;
-    case GV_DZ_SONG_STEP: dz_seq_select_song_step(&dz_model, (uint8_t)(v - 1)); return;
-    case GV_DZ_SONG_STEPS: dz_seq_set_song_steps(&dz_model, (uint8_t)v); return;
-    case GV_DZ_SONG_BANK: dz_seq_set_song_bank(&dz_model, (uint8_t)v); return;
-    case GV_DZ_SONG_PATTERN: dz_seq_set_song_pattern(&dz_model, (uint8_t)(v - 1)); return;
+    case GV_DZ_BANK: dz_seq_select_pattern(&dz_model, (uint8_t)v, dz_model.pattern); gu_dz_mark_dirty(); return;
+    case GV_DZ_PATTERN: dz_seq_select_pattern(&dz_model, dz_model.bank, (uint8_t)(v - 1)); gu_dz_mark_dirty(); return;
+    case GV_DZ_SONG_ON: dz_model.song_mode = (uint8_t)v; gu_dz_mark_dirty(); return;
+    case GV_DZ_PLAY_MODE: dz_model.loop_mode = (uint8_t)v; gu_dz_mark_dirty(); return;
+    case GV_DZ_SONG_STEP: dz_seq_select_song_step(&dz_model, (uint8_t)(v - 1)); gu_dz_mark_dirty(); return;
+    case GV_DZ_SONG_STEPS: dz_seq_set_song_steps(&dz_model, (uint8_t)v); gu_dz_mark_dirty(); return;
+    case GV_DZ_SONG_BANK: dz_seq_set_song_bank(&dz_model, (uint8_t)v); gu_dz_mark_dirty(); return;
+    case GV_DZ_SONG_PATTERN: dz_seq_set_song_pattern(&dz_model, (uint8_t)(v - 1)); gu_dz_mark_dirty(); return;
     case GV_SONG_ON: gx.enabled = (uint8_t)v; gx_mark_dirty(); return;
     case GV_SONG_FIRST:
         gx.first = (uint8_t)(v - 1);
@@ -1056,6 +1061,7 @@ static void gu_dz_editor_end(void)
     gu.sstep = dz_saved_step_cursor;
     gu.dirty = gu.dz_saved_dirty;
     gu.dz_edit_active = 0u;
+    gu_dz_mark_dirty();
     ui.force = 1u;
 }
 
@@ -1154,6 +1160,7 @@ static void gu_input(void)
     if (!gu.ready)
         return;
     gx_poll();
+    dz_store_poll(&dz_model, !gu.dz_edit_active && !gu.save);
     for (k = 0; k < NTRK; k++)                       /* MIDI Program Change: a program */
         if (ui.mpc[k]) {
             uint32_t v;
@@ -1307,7 +1314,7 @@ static void gu_input(void)
             break;
         case B_SAVE:
             if (gu.dz_edit_active) {
-                gu_say("RAM ONLY", 0);  /* no flash writes to old program slots */
+                gu_say("EXIT REC", 0);  /* leave REC to queue flash autosave */
                 break;
             }
             if (dz_play_has_backup) {
@@ -1331,6 +1338,7 @@ static void gu_boot(void)
     gu.shown_uboot = 0xFF;
     gu_prefs_load();
     dz_seq_model_init(&dz_model);
+    dz_store_boot(&dz_model);
     gu.dz_seq_mode = 0;
     gu_load(0);
     gu.ready = 1;
