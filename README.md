@@ -148,3 +148,5 @@ The ordinary development build writes `build/felucca.bin` and `build/felucca.fws
 Licensed under **GPL-3.0-only** as described in [LICENSE](LICENSE). The firmware update package also contains separately licensed components from the JieLi AC79 SDK; see the licence material attached to the [release](https://github.com/dzwerg/Golana-DZ/releases/tag/v0.1.0-beta).
 
 This is an independent community firmware project. **M-VAVE and FM-1 are trademarks of their respective owners**; Golana DZ Edition is not affiliated with or endorsed by M-VAVE.
+
+**Related project:** [miniBRUTE](https://github.com/dzwerg/miniBRUTE) - independent FM-1 synthesizer firmware (in development).
