@@ -11,6 +11,9 @@
 #define DZ_NPAT (DZ_NBANK * DZ_NPAT_PER_BANK)
 #define DZ_NSTEP 64u
 #define DZ_NSONG 64u
+/* An END row is encoded in existing bank/pattern bytes: NO format growth. */
+#define DZ_SONG_END_BANK DZ_NBANK
+#define DZ_SONG_END_PATTERN DZ_NPAT_PER_BANK
 
 typedef struct {
     uint8_t note;                         /* MIDI note 0..127, 0=rest */
@@ -23,8 +26,8 @@ typedef struct {
 } dz_pattern_t;
 
 typedef struct {
-    uint8_t bank;                         /* 0..3 (A..D) */
-    uint8_t pattern;                      /* 0..15 (01..16) */
+    uint8_t bank;                         /* 0..3 (A..D), 4 = END */
+    uint8_t pattern;                      /* 0..15 (01..16), 16 = END */
     uint8_t play_steps;                   /* 1..64, this song occurrence's length */
 } dz_song_entry_t;
 
@@ -53,6 +56,8 @@ void dz_seq_model_init(dz_seq_model_t *m);
 uint8_t dz_seq_pat_index(uint8_t bank, uint8_t pattern);
 void dz_seq_select_pattern(dz_seq_model_t *m, uint8_t bank, uint8_t pattern);
 void dz_seq_select_song_step(dz_seq_model_t *m, uint8_t step);
+/* Canonical END row: bank=4 AND pattern=16; no sound is played. */
+int dz_seq_song_is_end(const dz_song_entry_t *e);
 void dz_seq_set_song_bank(dz_seq_model_t *m, uint8_t bank);
 void dz_seq_set_song_pattern(dz_seq_model_t *m, uint8_t pattern);
 void dz_seq_set_song_steps(dz_seq_model_t *m, uint8_t count);

@@ -62,23 +62,24 @@ int main(void)
     check(gu.ready, "Golana simulator booted");
     uint32_t writes_initial = web_flash_writes_count();
 
-    /* Outside SEQ, ALGO must still control CUTOFF. */
+    /* ALGO from ANY page enters MicroSTEP's BANK/PATTERN, never cutoff. */
     gu_set(&GU_PAGES[0].k[0], 64);
     int cutoff_initial = gu_t()->p[GL_CUTOFF];
     turn(EN_ALGO, -1);
-    check(gu_t()->p[GL_CUTOFF] < cutoff_initial,
-          "ALGO outside SEQ changes CUTOFF");
-
-    /* NORMAL -> BANK/PATTERN -> SONG -> NORMAL, both directions. */
+    check(gu_t()->p[GL_CUTOFF] == cutoff_initial &&
+          gu.dz_seq_mode == 1 && GU_PAGES[gu.page].k[0].id == GV_DZ_BANK,
+          "ALGO from HOME opens BANK/PATTERN without touching CUTOFF");
+    press(B_HOME);
     press(B_SEQ);
-    check(gu.dz_seq_mode == 0 && GU_PAGES[gu.page].k[0].id == GL_ARPON,
-          "SEQ starts on NORMAL page");
-    int cutoff_seq = gu_t()->p[GL_CUTOFF];
-    turn(EN_ALGO, 1);
     check(gu.dz_seq_mode == 1 && GU_PAGES[gu.page].k[0].id == GV_DZ_BANK,
-          "ALGO advances to BANK/PATTERN");
-    check(gu_t()->p[GL_CUTOFF] == cutoff_seq,
-          "ALGO in SEQ does not change CUTOFF");
+          "SEQ returns to the selected BANK/PATTERN page");
+    turn(EN_ALGO, 1);
+    check(gu.dz_seq_mode == 2 && GU_PAGES[gu.page].k[0].id == GV_DZ_SONG_STEP,
+          "ALGO toggles to SONG editor");
+    turn(EN_ALGO, -1);
+    check(gu.dz_seq_mode == 1 && GU_PAGES[gu.page].k[0].id == GV_DZ_BANK &&
+          gu_t()->p[GL_CUTOFF] == cutoff_initial,
+          "ALGO toggles back to BANK/PATTERN and leaves cutoff unchanged");
 
     /* Four actual encoder inputs, not direct model setters. */
     turn(EN_K1, 1);
@@ -96,8 +97,8 @@ int main(void)
     check(gu.dz_seq_mode == 2 && GU_PAGES[gu.page].k[0].id == GV_DZ_SONG_STEP,
           "ALGO advances to SONG editor");
     turn(EN_ALGO, 1);
-    check(gu.dz_seq_mode == 0 && GU_PAGES[gu.page].k[0].id == GL_ARPON,
-          "ALGO wraps SONG to NORMAL");
+    check(gu.dz_seq_mode == 1 && GU_PAGES[gu.page].k[0].id == GV_DZ_BANK,
+          "ALGO never returns to legacy NORMAL via encoder");
     turn(EN_ALGO, -1);
     check(gu.dz_seq_mode == 2 && GU_PAGES[gu.page].k[0].id == GV_DZ_SONG_STEP,
           "Reverse ALGO returns to SONG");
@@ -124,6 +125,21 @@ int main(void)
     turn(EN_K1, 1);
     check(knob_value(1) == 63 && knob_value(2) == 2 && knob_value(3) == 5,
           "SONG browsing restores each row's displayed values");
+
+    /* The new END option must be selectable from BANK or PATTERN knob. */
+    turn(EN_K1, 1); /* song row 3 */
+    turn(EN_K3, 4); /* BANK = END */
+    char end_name[16];
+    gu_text(&GU_PAGES[gu.page].k[2], end_name);
+    check(dz_model.song_count == 3 && dz_seq_song_is_end(&dz_model.song[2]) &&
+          !strcmp(end_name, "END"), "BANK END creates a terminal song row");
+    gu_text(&GU_PAGES[gu.page].k[3], end_name);
+    check(!strcmp(end_name, "END"), "PATTERN display also shows END");
+    turn(EN_K4, -1); /* PATTERN END -> 16 */
+    check(!dz_seq_song_is_end(&dz_model.song[2]), "Turning away from END restores an editable row");
+    turn(EN_K4, 1); /* PATTERN END */
+    check(dz_seq_song_is_end(&dz_model.song[2]), "PATTERN END creates a terminal song row");
+    turn(EN_K1, -2); /* back to row 1 */
 
     /* Back to BANK/PATTERN, then open the existing REC editor. */
     turn(EN_ALGO, -1);
@@ -205,6 +221,20 @@ int main(void)
           "STOP restores the original synth sequence");
     check(web_flash_writes_count() == writes_initial,
           "Stage 5 UI/REC/PLAY caused no NOR flash writes");
+    press(B_HOME);
+    turn(EN_ALGO, 1);
+    check(gu.dz_seq_mode == 1 && GU_PAGES[gu.page].k[0].id == GV_DZ_BANK,
+          "ALGO from HOME always opens MicroSTEP menu");
+    press(B_REC);
+    check(gu.dz_edit_active, "REC from BANK opens selected DZ pattern");
+    turn(EN_ALGO, 1);
+    check(!gu.dz_edit_active && gu.dz_seq_mode == 1 && GU_PAGES[gu.page].k[0].id == GV_DZ_BANK,
+          "ALGO during REC commits DZ pattern and returns to MicroSTEP menu");
+    press(B_SAVE);
+    check(gu.save, "SAVE opens WRITE dialog");
+    turn(EN_ALGO, 1);
+    check(!gu.save && gu.dz_seq_mode == 1 && GU_PAGES[gu.page].k[0].id == GV_DZ_BANK,
+          "ALGO during WRITE safely cancels dialog and opens MicroSTEP menu");
 
     printf("\nDZ Stage 5 UI / REC / song: %d/%d passed; %d failures\n",
            total - fails, total, fails);

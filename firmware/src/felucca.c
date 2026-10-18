@@ -115,5 +115,6 @@ static uint8_t rescue_active;            /* main.c golana_rescue: the USB rescue
 #include "master.c"              /* the MASTER pot (#137: read before the audio starts) */
 #if GOLANA
 #include "golana_ui.c"           /* Golana's interface (main.c calls it instead of Felucca's) */
+#include "golana_dz_midi.c"
 #endif
 #include "main.c"

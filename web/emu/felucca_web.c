@@ -257,6 +257,7 @@ static void cdc_task(void) {}
 #include "../../firmware/src/master.c"
 #if GOLANA
 #include "../../firmware/src/golana_ui.c"
+#include "../../firmware/src/golana_dz_midi.c"
 #endif
 #include "../../firmware/src/main.c"
 #undef usb_poll

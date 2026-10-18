@@ -88,9 +88,13 @@ static int dz_store_valid(const dz_store_page_t *p, uint8_t half)
         return 0;
     for (j = 0; j < DZ_STORE_HALF_PATTERNS; j++)
         if (!p->length[j] || p->length[j] > DZ_NSTEP) return 0;
-    for (j = 0; j < DZ_NSONG; j++)
-        if (p->song[3u * j] >= DZ_NBANK || p->song[3u * j + 1u] >= DZ_NPAT_PER_BANK ||
-            !p->song[3u * j + 2u] || p->song[3u * j + 2u] > DZ_NSTEP) return 0;
+    for (j = 0; j < DZ_NSONG; j++) {
+        uint8_t bank = p->song[3u * j], pattern = p->song[3u * j + 1u];
+        int normal = bank < DZ_NBANK && pattern < DZ_NPAT_PER_BANK;
+        int end = bank == DZ_SONG_END_BANK && pattern == DZ_SONG_END_PATTERN;
+        if ((!normal && !end) || !p->song[3u * j + 2u] ||
+            p->song[3u * j + 2u] > DZ_NSTEP) return 0;
+    }
     return 1;
 }
 static void dz_store_decode(dz_seq_model_t *m, const dz_store_page_t *p)

@@ -417,6 +417,10 @@ static int ed_args_ok(uint32_t cmd, const uint8_t *a, uint32_t n)
     }
 }
 
+#if GOLANA
+static uint32_t dz_midi_request(const uint8_t *a, uint32_t n, uint8_t *out);
+#endif
+
 static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0 and F7 */
 {
     if (n < 4u)
@@ -432,6 +436,14 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         (cmd >= ED_FM6B_BEGIN && cmd <= ED_FM6B_END))
         autosave_hold();                                /* (a transfer: no autosave meanwhile, project.c) */
     ed_begin(cmd);
+#if GOLANA
+    if (cmd == 96u) {
+        uint8_t reply[200];
+        uint32_t rn = dz_midi_request(a, na, reply);
+        for (i = 0; i < rn; i++) ed_b(reply[i]);
+        ed_send(); return;
+    }
+#endif
     if (ed_ui_handle(cmd, a, na)) { ed_send(); return; }
     if (ed_backup_handle(cmd, a, na)) { ed_send(); return; }
     if (ed_fm6_handle(cmd, a, na)) { ed_send(); return; }

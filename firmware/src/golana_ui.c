@@ -242,6 +242,14 @@ static void gu_dz_play_pattern(void)
 {
     uint32_t i;
     track_t *t = gu_t();
+    if (!dz_play.running) {   /* SONG begins at END: silence, then STOP. */
+        for (i = 0; i < NSTEP; ++i) {
+            memset(&t->step[i], 0, sizeof t->step[i]);
+            t->step[i].time = ST_REST;
+        }
+        t->p[P_SLEN] = 1;
+        return;
+    }
     const dz_pattern_t *p = &dz_model.patterns[dz_seq_pat_index(dz_play.bank, dz_play.pattern)];
     for (i = 0; i < NSTEP; ++i) {
         const dz_pattern_step_t *ps = &p->step[i];
@@ -365,10 +373,10 @@ static void gu_range(const gu_par_t *q, int32_t *lo, int32_t *hi)
     case GV_STYPE: *lo = 0; *hi = 2; return;
     case GV_SFLAG: *lo = 0; *hi = 3; return;
     case GV_SLEN: *lo = 1; *hi = NSTEP; return;
-    case GV_DZ_BANK:
-    case GV_DZ_SONG_BANK: *lo = 0; *hi = 3; return;
-    case GV_DZ_PATTERN:
-    case GV_DZ_SONG_PATTERN: *lo = 1; *hi = 16; return;
+    case GV_DZ_BANK: *lo = 0; *hi = 3; return;
+    case GV_DZ_SONG_BANK: *lo = 0; *hi = DZ_SONG_END_BANK; return;
+    case GV_DZ_PATTERN: *lo = 1; *hi = 16; return;
+    case GV_DZ_SONG_PATTERN: *lo = 1; *hi = DZ_SONG_END_PATTERN + 1; return;
     case GV_DZ_SONG_ON:
     case GV_DZ_PLAY_MODE: *lo = 0; *hi = 1; return;
     case GV_DZ_SONG_STEP: *lo = 1; *hi = DZ_NSONG; return;
@@ -534,6 +542,12 @@ static void gu_text(const gu_par_t *q, char *b)
     if (q->id == GV_NONE) {
         b[0] = 0;
         return;
+    }
+    if (q->id == GV_DZ_SONG_BANK || q->id == GV_DZ_SONG_PATTERN) {
+        if (dz_seq_song_is_end(&dz_model.song[dz_model.song_step])) {
+            str_cpy(b, "END", 8);
+            return;
+        }
     }
     if (q->id == GV_DZ_BANK || q->id == GV_DZ_SONG_BANK) {
         b[0] = (char)('A' + v); b[1] = 0; return;
@@ -1209,7 +1223,17 @@ static void gu_input(void)
         (void)panel_enc(EN_K3);
         (void)panel_enc(EN_K4);
         (void)panel_enc(EN_SELECT);
-        (void)panel_enc(EN_ALGO);
+        s = panel_enc(EN_ALGO);
+        if (s) {
+            /* ALGO always opens MicroSTEP, including from unsaved WRITE.
+             * Cancel the dialog explicitly: do not silently store a preset. */
+            gu.save = 0u;
+            gu.dz_seq_mode = 1u;
+            gu_go(gu_dz_seq_page(gu.dz_seq_mode));
+            gu.hot = -1;
+            ui.force = 1u;
+            gu_say("CANCELLED", 0);
+        }
     } else {
         s = panel_enc(EN_SELECT);
         if (s)
@@ -1217,18 +1241,18 @@ static void gu_input(void)
         for (k = 0; k < 4u; k++)
             gu_turn(k, panel_enc(EN_K1 + k));
         s = panel_enc(EN_ALGO);
-        if (s && GU_PAGES[gu.page].btn == B_SEQ) {
-            gu.dz_seq_mode = (uint8_t)(((int32_t)gu.dz_seq_mode + (s > 0 ? 1 : 2)) % 3);
+        if (s) {
+            /* From ANY page, ALGO opens MicroSTEP's BANK/PATTERN menu.
+             * When already there, alternate BANK/PATTERN and SONG. */
+            if (gu.dz_edit_active)
+                gu_dz_editor_end();  /* commit pending REC before leaving */
+            if (GU_PAGES[gu.page].btn != B_SEQ || gu.dz_seq_mode == 0u)
+                gu.dz_seq_mode = 1u;
+            else
+                gu.dz_seq_mode = gu.dz_seq_mode == 1u ? 2u : 1u;
             gu_go(gu_dz_seq_page(gu.dz_seq_mode));
             gu.hot = -1;
             ui.force = 1;
-        } else if (s) {                       /* CUTOFF outside SEQ */
-            static const gu_par_t CUT = {GL_CUTOFF, "CUTOFF", 0};
-            char v[8];
-            gu_set(&CUT, gu_get(&CUT) + gu_accel(s, 127));
-            gu_text(&CUT, v);
-            if (GU_PAGES[gu.page].k[1].id != GL_CUTOFF && GU_PAGES[gu.page].k[0].id != GL_CUTOFF)
-                gu_say("CUTOFF ", v);
         }
     }
     for (id = 0; id < 32u; id++) {
@@ -1263,26 +1287,28 @@ static void gu_input(void)
             continue;
         }
         switch (b) {
+        /* MicroSTEP Pro: REC is exclusively the DZ BANK/PATTERN editor.
+         * It never edits a synth preset's legacy sequence, irrespective of
+         * the current UI page or which sound/preset is selected. */
+        case B_REC:
+            if (!gu.dz_edit_active) {
+                if (song.playing || transport_busy() || dz_play_has_backup) {
+                    gu_say("STOP FIRST", 0);
+                    break;
+                }
+                gu_dz_editor_begin(); /* selected dz_model.bank / pattern */
+            }
+            gu_button(B_REC);         /* within REC, advance editor page */
+            break;
         case B_HOME:
         case B_EDIT:
         case B_SCL:
         case B_ENV:
         case B_LFO:
         case B_GLO:
-        case B_REC:
         case B_SEQ:
         case B_FX:
-            if (b == B_REC && !gu.dz_edit_active &&
-                GU_PAGES[gu.page].btn == B_SEQ && gu.dz_seq_mode == 1u) {
-                if (song.playing || transport_busy()) {
-                    gu_say("STOP FIRST", 0);
-                    break;
-                }
-                gu_dz_editor_begin();
-                gu_button(B_REC);       /* first REC page: STEP/NOTE/TYPE/ACC */
-                break;
-            }
-            if (gu.dz_edit_active && b != B_REC) {
+            if (gu.dz_edit_active) {
                 gu_dz_editor_end();    /* commit to RAM bank, restore synth program */
                 if (b == B_SEQ) {
                     gu_go(gu_dz_seq_page(1u));
